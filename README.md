@@ -1,6 +1,6 @@
 Polygonal Hand-Tracker: Custom Virtual Input Zone
 
-A lightweight, webcam-based hand-tracking tool that lets you define a movable polygonal "virtual trackpad" in air using your fingertip.**  
+A lightweight, webcam-based hand-tracking tool that lets you define a movable polygonal "virtual trackpad" in air using your fingertip.
 Cursor control is restricted to movements inside your custom-drawn shape — perfect for precise, low-fatigue input (e.g., zero-gravity environments like ISS/Artemis, accessibility, or touchless setups).
 
 Unlike most virtual mice (fixed bounding boxes or full-screen tracking), this lets you:
