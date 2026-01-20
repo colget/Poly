@@ -4,10 +4,10 @@ A lightweight, webcam-based hand-tracking tool that lets you define a movable po
 Cursor control is restricted to movements inside your custom-drawn shape — perfect for precise, low-fatigue input (e.g., zero-gravity environments like ISS/Artemis, accessibility, or touchless setups).
 
 Unlike most virtual mice (fixed bounding boxes or full-screen tracking), this lets you:
-Draw any polygon** (square, rectangle, irregular) by tracing with your index finger.
-Save/load profiles** for reuse.
-Grab & relocate** the zone with a 4–5 finger gesture (ideal for drifting in microgravity).
-Ignore input** outside the zone to reduce jitter/false positives.
+Draw any polygon (square, rectangle, irregular) by tracing with your index finger.
+Save/load profiles for reuse.
+Grab & relocate the zone with a 4–5 finger gesture (ideal for drifting in microgravity).
+Ignore input outside the zone to reduce jitter/false positives.
 
 Built with MediaPipe Hand Landmarker and OpenCV.
 
