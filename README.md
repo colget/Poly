@@ -11,8 +11,7 @@ Ignore input outside the zone to reduce jitter/false positives.
 
 Built with MediaPipe Hand Landmarker and OpenCV.
 
-Its Features
-Trace polygon vertices in real-time ('d' to add point).
+Its features trace polygon vertices in real-time ('d' to add point).
 Close/finish polygon ('f').
 Check fingertip "inside" status (green highlight).
 Reset ('r') or quit (ESC/q).
