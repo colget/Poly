@@ -40,7 +40,8 @@ profiles. **Drawing currently depends on the keyboard — this is the main thing
                                  │  close polygon (dwell on earlier pt)   ▲
                                  └────────────────────────────────────────┘
    ACTIVE ── fist held ~2 s ──► DRAWING (polygon cleared)
-   ACTIVE ── open palm ───────► GRAB ── palm closes / hand leaves ──► ACTIVE
+   DRAWING ─ open palm held ~1.5 s (no points yet) ─► ACTIVE (quick rectangle zone)
+   ACTIVE ── open palm held ~0.5 s ─► GRAB ── palm closes / hand leaves ──► ACTIVE
    any mode ── no hand for N frames ──► stays in mode, cursor does nothing
 ```
 
@@ -50,10 +51,11 @@ profiles. **Drawing currently depends on the keyboard — this is the main thing
 | DRAWING | Point (index only) + **hold still ~0.8 s** (dwell) | Add vertex | Dwell needs no second gesture and is a proven accessibility technique; a progress ring shows it filling |
 | DRAWING | Dwell **on any earlier vertex** (3+ points placed; not the one just placed) | Close polygon → ACTIVE | Owner's choice after testing: points are placed freely in any order with no path drawn between them; on close they are ordered by angle around their centroid so the outline never self-intersects. The just-placed vertex is excluded so a small drift after placing can't close by accident |
 | DRAWING | Fist held ~1 s | Undo last vertex | Quick correction without restarting |
+| DRAWING | Open palm held ~1.5 s, **only with no points placed** | Quick zone: rectangle (≈4×3 hand sizes) around the palm, kept above the reach band → ACTIVE | Owner request. Only with zero points so it can never discard placed points; the hold avoids accidental triggers |
 | ACTIVE | Point, inside zone | Move cursor | Core feature |
 | ACTIVE | Point, outside zone | Nothing | Lets the user work normally without moving the mouse |
 | ACTIVE | Pinch (thumb tip 4 + index tip 8) | Click | Natural "press"; cursor freezes at pinch start |
-| ACTIVE | Open palm (4–5 fingers) | Grab & move zone | Big, unmistakable gesture |
+| ACTIVE | Open palm (4–5 fingers) held ~0.5 s | Grab & move zone (follows palm centre, clamped to frame) | Big, unmistakable gesture; short hold so a briefly opened hand doesn't move the zone. Implemented early (owner request) |
 | ACTIVE | Fist held ~2 s | Clear & redraw | Long hold because it's destructive |
 
 ### Recognition rules (important for reliability)
@@ -67,8 +69,13 @@ profiles. **Drawing currently depends on the keyboard — this is the main thing
   ratios, not y-coordinates alone (y-only breaks when the hand is rotated).
 - Pinch uses hysteresis (separate press and release thresholds) + debounce, so one
   pinch = one click.
-- In DRAWING mode, pinch and palm are ignored — only point, dwell and fist matter.
-  Why: fewer active gestures in a mode = fewer false triggers.
+- In DRAWING mode, pinch is ignored and open palm only counts (as quick zone) while no
+  points are placed. Why: fewer active gestures in a mode = fewer false triggers.
+- After a gesture switches mode, the hand is usually still in that shape: the next
+  mode's hold for the same shape must wait for a release (`HoldTimer.block_until_release`).
+- **Reach band:** MediaPipe needs the palm in view. A pointing fingertip is ~1.9 hand
+  sizes above the wrist, so the bottom `reach_margin_hands` of the image is effectively
+  unusable for the fingertip. Shade it while placing zones; keep generated zones above it.
 - After a vertex is added, the dwell must reset (finger must move away) before the
   next vertex can be added — prevents stacking points on the same spot.
 - All timings and thresholds live in one `config.py` (dataclass) so they can be tuned

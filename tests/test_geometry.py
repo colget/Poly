@@ -2,6 +2,7 @@ import pytest
 
 from poly.geometry import (
     PolygonDraft, distance, landmarks_to_pixels, order_around_centroid, point_in_polygon,
+    quick_zone, translate_within,
 )
 
 SQUARE = [(0, 0), (100, 0), (100, 100), (0, 100)]
@@ -117,3 +118,34 @@ def test_reset_clears_everything():
     draft.reset()
     assert draft.vertices == []
     assert not draft.closed
+
+
+def test_quick_zone_centred_when_it_fits():
+    assert quick_zone((320, 200), 200, 100, (640, 480), None, 10) == [
+        (220, 150), (420, 150), (420, 250), (220, 250)]
+
+
+def test_quick_zone_pushed_inside_the_frame():
+    rect = quick_zone((20, 20), 200, 100, (640, 480), None, 10)
+    assert rect[0] == (10, 10) and rect[2] == (210, 110)
+
+
+def test_quick_zone_lifted_above_bottom_limit():
+    rect = quick_zone((320, 400), 200, 100, (640, 480), 300, 10)
+    assert rect[2][1] == 300 and rect[0][1] == 200
+
+
+def test_quick_zone_shortened_when_it_cannot_fit():
+    rect = quick_zone((320, 100), 200, 400, (640, 480), 200, 10)
+    assert rect[0][1] == 10 and rect[2][1] == 200
+
+
+def test_translate_within_moves_freely_inside():
+    sq = [(100, 100), (200, 100), (200, 200), (100, 200)]
+    assert translate_within(sq, 10.4, -20, (640, 480), 10)[0] == (110, 80)
+
+
+def test_translate_within_stops_at_the_edges():
+    sq = [(100, 100), (200, 100), (200, 200), (100, 200)]
+    moved = translate_within(sq, -500, 1000, (640, 480), 10)
+    assert min(v[0] for v in moved) == 10 and max(v[1] for v in moved) == 470

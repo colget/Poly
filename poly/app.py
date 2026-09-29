@@ -106,8 +106,10 @@ def main(argv: list[str] | None = None) -> None:
         tracker = HandTracker(args.model, config)
         print("\n=== Poly - Polygon Tracer ===")
         print("Draw: point with your index finger and hold still to drop a point.")
-        print("      Hold still on the first point to close the zone. Fist 1 s = undo.")
-        print("Zone: fist held 2 s = clear and redraw.")
+        print("      Hold still on an earlier point to finish. Fist 1 s = undo.")
+        print("      Or hold an open palm 1.5 s for a ready-made rectangle zone.")
+        print("Zone: open palm = pick the zone up and move it; close your hand to drop it.")
+        print("      Fist held 2 s = clear and redraw.")
         if args.debug_keys:
             print("Debug keys: 'd' add vertex, 'f' close polygon (3+ points), 'r' clear")
         print("ESC or 'q' (or close the window) to quit.\n")
@@ -134,14 +136,14 @@ def main(argv: list[str] | None = None) -> None:
             landmarks = tracker.detect(frame, now_s)
             if landmarks is not None:
                 landmarks = landmarks_to_pixels(landmarks, w, h)
-            result = machine.update(landmarks, now_s)
+            result = machine.update(landmarks, now_s, frame_size=(w, h))
             for event in result.events:
                 print(event.value)
                 flash.show(event.value, now_s)
                 sounds.play(event)
 
             feedback.render(frame, result, machine.polygon.vertices, machine.polygon.closed,
-                            config.min_polygon_vertices, args.debug_keys)
+                            config, args.debug_keys)
             flash.draw(frame, now_s)
             cv2.imshow(WINDOW_NAME, frame)
 

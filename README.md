@@ -11,16 +11,23 @@ Ignore input outside the zone to reduce jitter/false positives.
 
 Built with MediaPipe Hand Landmarker and OpenCV.
 
-Current state (work in progress): drawing the zone is fully touchless. Cursor control, clicking,
-grabbing the zone and saved profiles are still to come.
+Current state (work in progress): creating, moving and clearing the zone is fully touchless.
+Cursor control, clicking and saved profiles are still to come.
 
 | Mode | Gesture | Action |
 |---|---|---|
 | DRAWING | Point (index finger only) and hold still ~0.8 s | Add a point anywhere, in any order (a ring fills while you hold) |
 | DRAWING | Hold still on an earlier point (3+ points placed) | Finish: the points are joined into a zone -> ACTIVE |
 | DRAWING | Fist held ~1 s | Undo the last point |
+| DRAWING | Open palm held ~1.5 s (no points yet) | Quick zone: a ready-made rectangle around your hand -> ACTIVE |
 | ACTIVE | Point | Shows whether your fingertip is inside the zone |
+| ACTIVE | Open palm held ~0.5 s | Pick the zone up; it follows your hand. Close your hand to drop it |
 | ACTIVE | Fist held ~2 s | Clear the zone and draw a new one |
+
+**Tracking tip:** MediaPipe has to see your *palm* to find your hand. When you point at the
+bottom part of the picture, your palm is below the camera's view and tracking drops out. The
+shaded band at the bottom of the screen shows where this happens. Keep zones above it (quick
+zones do this automatically), sit a little further back, or tilt the camera down.
 
 The banner at the top always shows the current mode and what you can do. `--sound` adds a short
 beep when a gesture is recognised. Quit with ESC/q or by closing the window.

@@ -2,13 +2,16 @@
 
 import random
 
+import pytest
+
 from poly.config import DEFAULT_CONFIG
 from poly.geometry import PolygonDraft, distance
-from poly.gestures import Pose
+from poly.gestures import Pose, palm_centre
 from poly.modes import Event, FrameResult, HoldAction, Mode, ModeMachine
 from synthetic_hands import make_hand
 
 FPS = 30
+FRAME = (640, 480)
 SQUARE = [(150, 120), (450, 120), (450, 380), (150, 380)]
 
 
@@ -27,7 +30,7 @@ class Sim:
         self.results: list[FrameResult] = []
 
     def _step(self, landmarks) -> FrameResult:
-        r = self.m.update(landmarks, self.t)
+        r = self.m.update(landmarks, self.t, FRAME)
         self.t += 1 / FPS
         self.events += r.events
         self.results.append(r)
@@ -281,3 +284,112 @@ def test_debug_actions():
     assert not m.add_vertex((1, 1))  # not while ACTIVE
     m.clear()
     assert m.mode is Mode.DRAWING and m.polygon.vertices == []
+
+
+# ---------------------------------------------------------------- quick zone
+
+
+def test_open_palm_creates_a_quick_zone_around_the_hand():
+    sim = Sim()
+    r = sim.hold(Pose.OPEN_PALM, (320, 200), 0.8)
+    assert r.hold_action is HoldAction.QUICK_ZONE and 0 < r.hold_progress < 1
+    sim.hold(Pose.OPEN_PALM, (320, 200), 1.0)
+    assert sim.events == [Event.QUICK_ZONE]
+    assert sim.m.mode is Mode.ACTIVE
+    verts = sim.m.polygon.vertices
+    assert len(verts) == 4
+    xs, ys = [v[0] for v in verts], [v[1] for v in verts]
+    assert max(xs) - min(xs) == pytest.approx(4 * 80, abs=2)  # 4 hand sizes wide
+    # Centred horizontally on the palm, not the fingertip.
+    palm_x, _ = palm_centre(make_hand(Pose.OPEN_PALM, (320, 200)))
+    assert abs((max(xs) + min(xs)) / 2 - palm_x) < 2
+
+
+def test_quick_zone_stays_above_the_reach_band():
+    # Palm low in the frame: the zone is lifted so its bottom stays where the
+    # palm is still visible while pointing.
+    sim = Sim()
+    sim.hold(Pose.OPEN_PALM, (320, 330), 2.0)
+    bottom = max(v[1] for v in sim.m.polygon.vertices)
+    assert bottom <= FRAME[1] - DEFAULT_CONFIG.reach_margin_hands * 80 + 1
+    assert min(v[1] for v in sim.m.polygon.vertices) >= DEFAULT_CONFIG.edge_margin_px
+
+
+def test_quick_zone_only_when_no_points_placed():
+    sim = Sim()
+    sim.draw(SQUARE[:1])
+    sim.hold(Pose.OPEN_PALM, (320, 200), 3.0)
+    assert sim.events == [Event.VERTEX_ADDED]
+    assert sim.m.mode is Mode.DRAWING
+
+
+def test_palm_still_open_after_quick_zone_does_not_grab():
+    sim = Sim()
+    sim.hold(Pose.OPEN_PALM, (320, 200), 4.0)
+    assert sim.events == [Event.QUICK_ZONE]
+    assert sim.m.mode is Mode.ACTIVE
+
+
+# ---------------------------------------------------------------- grab & move
+
+
+def active_sim() -> Sim:
+    return Sim(ModeMachine(DEFAULT_CONFIG, PolygonDraft(vertices=list(SQUARE), closed=True)))
+
+
+def test_short_open_palm_does_not_grab():
+    sim = active_sim()
+    r = sim.hold(Pose.OPEN_PALM, (300, 250), 0.3)
+    assert r.hold_action is HoldAction.GRAB
+    sim.hold(Pose.OTHER, (300, 250), 0.3)
+    assert sim.m.mode is Mode.ACTIVE and sim.events == []
+
+
+def test_grab_moves_the_zone_with_the_palm_and_drops_it():
+    sim = active_sim()
+    sim.hold(Pose.OPEN_PALM, (300, 250), 0.8)
+    assert sim.events == [Event.ZONE_GRABBED] and sim.m.mode is Mode.GRAB
+    sim.move(Pose.OPEN_PALM, (300, 250), (340, 200), 0.6)
+    sim.hold(Pose.OPEN_PALM, (340, 200), 1.0)  # let the smoothing settle
+    moved = sim.m.polygon.vertices
+    for got, want in zip(moved, SQUARE):
+        assert abs(got[0] - (want[0] + 40)) <= 2 and abs(got[1] - (want[1] - 50)) <= 2
+    sim.hold(Pose.FIST, (340, 200), 0.3)  # close the hand
+    assert sim.events[-1] is Event.ZONE_DROPPED and sim.m.mode is Mode.ACTIVE
+    assert sim.m.polygon.vertices == moved  # stays where it was dropped
+
+
+def test_grabbed_zone_cannot_leave_the_frame():
+    sim = active_sim()
+    sim.hold(Pose.OPEN_PALM, (300, 250), 0.8)
+    sim.move(Pose.OPEN_PALM, (300, 250), (600, 250), 0.5)
+    sim.hold(Pose.OPEN_PALM, (600, 250), 1.0)
+    xs = [v[0] for v in sim.m.polygon.vertices]
+    assert max(xs) == FRAME[0] - DEFAULT_CONFIG.edge_margin_px
+    assert max(xs) - min(xs) == 300  # shape unchanged
+
+
+def test_losing_the_hand_drops_the_zone():
+    sim = active_sim()
+    sim.hold(Pose.OPEN_PALM, (300, 250), 0.8)
+    sim.no_hand(3)  # brief flicker: still holding it
+    assert sim.m.mode is Mode.GRAB
+    sim.no_hand(20)
+    assert sim.m.mode is Mode.ACTIVE and sim.events[-1] is Event.ZONE_DROPPED
+
+
+def test_fist_used_to_drop_does_not_start_a_clear():
+    sim = active_sim()
+    sim.hold(Pose.OPEN_PALM, (300, 250), 0.8)
+    r = sim.hold(Pose.FIST, (300, 250), 3.0)  # drop with a fist and keep holding
+    assert Event.POLYGON_CLEARED not in sim.events and r.hold_action is None
+    sim.hold(Pose.OTHER, (300, 250), 0.3)  # relax...
+    sim.hold(Pose.FIST, (300, 250), 2.5)  # ...then a deliberate fist still clears
+    assert sim.events[-1] is Event.POLYGON_CLEARED
+
+
+def test_palm_in_drawing_with_points_is_ignored():
+    sim = Sim()
+    sim.draw(SQUARE[:2])
+    r = sim.hold(Pose.OPEN_PALM, SQUARE[1], 2.0)
+    assert r.hold_action is None and sim.m.mode is Mode.DRAWING

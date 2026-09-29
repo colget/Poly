@@ -13,9 +13,10 @@ import threading
 import cv2
 import numpy as np
 
+from poly.config import Config
 from poly.geometry import Point
-from poly.modes import Event, FrameResult, HoldAction, Mode
 from poly.gestures import Pose
+from poly.modes import Event, FrameResult, HoldAction, Mode
 
 # OpenCV colours are BGR, not RGB.
 WHITE = (255, 255, 255)
@@ -27,8 +28,13 @@ ORANGE = (0, 130, 255)
 RED = (40, 40, 230)
 CYAN = (255, 220, 0)
 
-MODE_COLOURS = {Mode.DRAWING: AMBER, Mode.ACTIVE: GREEN}
-HOLD_COLOURS = {HoldAction.UNDO: ORANGE, HoldAction.CLEAR: RED}
+MODE_COLOURS = {Mode.DRAWING: AMBER, Mode.ACTIVE: GREEN, Mode.GRAB: CYAN}
+HOLD_COLOURS = {
+    HoldAction.UNDO: ORANGE,
+    HoldAction.CLEAR: RED,
+    HoldAction.QUICK_ZONE: GREEN,
+    HoldAction.GRAB: CYAN,
+}
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 RING_RADIUS = 26
@@ -38,21 +44,36 @@ def _pt(p: tuple[float, float]) -> Point:
     return int(round(p[0])), int(round(p[1]))
 
 
-def draw_polygon(image: np.ndarray, vertices: list[Point], closed: bool) -> None:
-    """Closed: green outline with a light fill. Drawing: loose amber dots only -
-    the order points are placed in doesn't matter, so no path is drawn."""
+def draw_polygon(image: np.ndarray, vertices: list[Point], closed: bool,
+                 colour: tuple[int, int, int] = GREEN) -> None:
+    """Closed: outline with a light fill. Drawing: loose amber dots only - the
+    order points are placed in doesn't matter, so no path is drawn."""
     if not vertices:
         return
     pts = np.array(vertices, np.int32).reshape((-1, 1, 2))
     if closed:
         fill = image.copy()
-        cv2.fillPoly(fill, [pts], GREEN)
+        cv2.fillPoly(fill, [pts], colour)
         cv2.addWeighted(fill, 0.15, image, 0.85, 0, dst=image)
-        cv2.polylines(image, [pts], isClosed=True, color=GREEN, thickness=3)
+        cv2.polylines(image, [pts], isClosed=True, color=colour, thickness=3)
         return
     for v in vertices:
         cv2.circle(image, v, 7, AMBER, cv2.FILLED)
         cv2.circle(image, v, 9, BLACK, 1)  # thin outline so dots show on any background
+
+
+def draw_reach_band(image: np.ndarray, limit_y: float) -> None:
+    """Shade the bottom strip where a pointing fingertip puts the palm below the
+    camera's view (so MediaPipe loses the hand)."""
+    h, w = image.shape[:2]
+    y = int(limit_y)
+    if y >= h or y < 70:  # nothing to show, or it would cover the banner
+        return
+    band = image[y:h]
+    band[:] = (band * 0.55).astype(image.dtype)
+    cv2.line(image, (0, y), (w, y), GREY, 1, cv2.LINE_AA)
+    cv2.putText(image, "Too low - your palm leaves the camera view", (12, y + 20),
+                FONT, 0.5, GREY, 1)
 
 
 def draw_close_hint(image: np.ndarray, target: Point) -> None:
@@ -83,7 +104,9 @@ def draw_progress_ring(image: np.ndarray, centre: tuple[float, float], progress:
 
 def _banner(image: np.ndarray, title: str, hint: str, colour: tuple[int, int, int]) -> None:
     w = image.shape[1]
-    cv2.rectangle(image, (0, 0), (w, 64), BLACK, cv2.FILLED)
+    # See-through, so a zone or fingertip near the top edge stays visible.
+    strip = image[0:64]
+    strip[:] = (strip * 0.35).astype(image.dtype)
     cv2.rectangle(image, (0, 0), (w, 64), colour, 2)
     cv2.putText(image, title, (12, 28), FONT, 0.8, colour, 2)
     cv2.putText(image, hint, (12, 54), FONT, 0.5, WHITE, 1)
@@ -91,18 +114,27 @@ def _banner(image: np.ndarray, title: str, hint: str, colour: tuple[int, int, in
 
 def mode_hint(result: FrameResult, vertex_count: int, min_vertices: int) -> str:
     """One-line instructions for the current mode."""
+    if not result.hand_visible:
+        return "No hand seen - keep your whole hand, including the palm, in view"
     if result.mode is Mode.DRAWING:
-        hint = "Point & hold still = add point   |   Fist 1s = undo"
+        if vertex_count == 0:
+            return "Point & hold still = add point   |   Open palm 1.5s = quick zone"
         if vertex_count >= min_vertices:
-            hint = "Hold on an earlier point to finish   |   Fist 1s = undo"
-        return hint
-    return "Point inside the zone   |   Fist 2s = clear & redraw"
+            return "Hold on an earlier point to finish   |   Fist 1s = undo"
+        return "Point & hold still = add point   |   Fist 1s = undo"
+    if result.mode is Mode.GRAB:
+        return "Move your open hand to drag the zone   |   Close your hand to drop it"
+    return "Point inside the zone   |   Open palm = move zone   |   Fist 2s = clear"
 
 
 def render(image: np.ndarray, result: FrameResult, vertices: list[Point], closed: bool,
-           min_vertices: int, debug_keys: bool) -> None:
+           config: Config, debug_keys: bool) -> None:
     """Draw every overlay for one frame onto `image` (in place)."""
-    draw_polygon(image, vertices, closed)
+    # The reach band matters while placing a zone; in ACTIVE it would just clutter.
+    if result.mode is not Mode.ACTIVE and result.hand_size is not None:
+        draw_reach_band(image, image.shape[0] - config.reach_margin_hands * result.hand_size)
+
+    draw_polygon(image, vertices, closed, MODE_COLOURS[result.mode])
 
     if result.mode is Mode.DRAWING and result.close_target is not None:
         draw_close_hint(image, result.close_target)
@@ -111,7 +143,7 @@ def render(image: np.ndarray, result: FrameResult, vertices: list[Point], closed
         if result.mode is Mode.ACTIVE:
             colour = GREEN if result.inside else ORANGE
         else:
-            colour = CYAN if result.pose is Pose.POINT else GREY
+            colour = CYAN if result.pose in (Pose.POINT, Pose.OPEN_PALM) else GREY
         draw_fingertip(image, result.tip, colour)
         draw_progress_ring(image, result.tip, result.dwell_progress, CYAN)
         if result.hold_action is not None:
@@ -123,7 +155,7 @@ def render(image: np.ndarray, result: FrameResult, vertices: list[Point], closed
         title += "  -  inside" if result.inside else "  -  outside"
     if not result.hand_visible:
         title += "  -  no hand"
-    _banner(image, title, mode_hint(result, len(vertices), min_vertices),
+    _banner(image, title, mode_hint(result, len(vertices), config.min_polygon_vertices),
             MODE_COLOURS[result.mode])
 
     h = image.shape[0]
@@ -162,6 +194,9 @@ TONES = {
     Event.POLYGON_CLOSED: (1320, 180),
     Event.VERTEX_UNDONE: (440, 120),
     Event.POLYGON_CLEARED: (330, 300),
+    Event.QUICK_ZONE: (1320, 180),
+    Event.ZONE_GRABBED: (660, 80),
+    Event.ZONE_DROPPED: (990, 80),
 }
 
 

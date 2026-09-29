@@ -52,6 +52,17 @@ def hand_size(landmarks: Sequence[Landmark]) -> float:
     return _dist3(landmarks[WRIST], landmarks[MIDDLE_MCP])
 
 
+def palm_centre(landmarks: Sequence[Landmark]) -> tuple[float, float]:
+    """Average of the wrist and the four finger knuckles.
+
+    Why not the fingertip: when dragging the zone with an open hand, fingers wave
+    about, but the palm's centre moves only when the whole hand moves.
+    """
+    ids = (WRIST, 5, MIDDLE_MCP, 13, 17)
+    return (sum(landmarks[i][0] for i in ids) / len(ids),
+            sum(landmarks[i][1] for i in ids) / len(ids))
+
+
 def finger_extended(landmarks: Sequence[Landmark], finger: tuple[int, int], ratio: float) -> bool:
     """True if the finger's tip is much further from the wrist than its knuckle.
 
@@ -167,6 +178,16 @@ class HoldTimer:
         self._start: float | None = None
         self._fired = False
         self.progress = 0.0  # 0..1, for the on-screen ring
+
+    def block_until_release(self) -> None:
+        """Ignore the condition until it has been false at least once.
+
+        Why: after one gesture switches mode, the hand is often still in that shape
+        (e.g. open palm after a quick zone). It mustn't instantly trigger the next
+        mode's action for the same shape.
+        """
+        self.reset()
+        self._fired = True
 
     def update(self, active: bool, now_s: float) -> bool:
         """Feed whether the condition holds this frame. Returns True on the frame it fires."""

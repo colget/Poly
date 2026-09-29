@@ -75,6 +75,28 @@ class Config:
     # undo because it's destructive and must not happen by accident.
     clear_hold_s: float = 2.0
 
+    # --- Reachable area --------------------------------------------------------------
+    # MediaPipe must see the palm to find a hand. A pointing fingertip sits about 1.9
+    # hand sizes above the wrist, so once the fingertip is lower than this many hand
+    # sizes above the bottom of the image, the wrist/palm drop out of view and
+    # tracking fails. Shown as a shaded band; quick zones are kept above it.
+    reach_margin_hands: float = 2.0
+    # Keep generated or moved zones at least this far (pixels) from the image edges.
+    edge_margin_px: int = 10
+
+    # --- Quick zone (DRAWING, no points yet) ------------------------------------------
+    # Hold an open palm this long to create a ready-made rectangular zone around it.
+    quick_zone_hold_s: float = 1.5
+    # Size of the quick zone, in hand sizes. About 4 x 3 fills roughly half of a
+    # 640x480 image at a comfortable arm's length.
+    quick_zone_width_hands: float = 4.0
+    quick_zone_height_hands: float = 3.0
+
+    # --- Grab & move zone (ACTIVE) -------------------------------------------------------
+    # Hold an open palm this long to pick the zone up. A short hold (rather than
+    # instant) stops a hand that opens briefly while working from moving the zone.
+    grab_hold_s: float = 0.5
+
     # --- Feedback -----------------------------------------------------------------------
     # How long an on-screen confirmation ("Point added") stays visible.
     flash_message_s: float = 1.2

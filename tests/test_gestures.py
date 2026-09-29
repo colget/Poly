@@ -2,7 +2,7 @@ import pytest
 
 from poly.config import DEFAULT_CONFIG
 from poly.gestures import (
-    Debouncer, DwellDetector, HoldTimer, Pose, classify_pose, hand_size,
+    Debouncer, DwellDetector, HoldTimer, Pose, classify_pose, hand_size, palm_centre,
 )
 from synthetic_hands import make_hand
 
@@ -83,3 +83,20 @@ def test_hold_timer_progress_resets_on_release():
     assert hold.progress == pytest.approx(14 / 30)
     hold.update(False, 0.5)
     assert hold.progress == 0.0
+
+
+def test_palm_centre_ignores_finger_pose():
+    # Same hand position, different fingers: the palm centre doesn't move.
+    wrist_at = make_hand(Pose.FIST)[0]
+    palm = make_hand(Pose.OPEN_PALM)
+    shift = (wrist_at[0] - palm[0][0], wrist_at[1] - palm[0][1])
+    moved_palm = [(x + shift[0], y + shift[1], z) for x, y, z in palm]
+    assert palm_centre(moved_palm) == pytest.approx(palm_centre(make_hand(Pose.FIST)))
+
+
+def test_hold_timer_blocked_until_release():
+    hold = HoldTimer(0.5)
+    hold.block_until_release()
+    assert not any(hold.update(True, t / 30) for t in range(60))  # held 2 s: nothing
+    hold.update(False, 2.0)
+    assert any(hold.update(True, 2.0 + t / 30) for t in range(20))
