@@ -23,13 +23,14 @@ Stack: Python, OpenCV, MediaPipe Tasks `HandLandmarker` (model file
 `hand_landmarker.task`, already in the repo root).
 
 ## Current state
-`poly.py` (~150 lines) is a working proof of concept that:
-- shows the webcam feed with an index-fingertip marker (landmark 8)
-- adds vertices with key `d`, closes with `f`, resets with `r`, quits `q`/ESC
-- tests inside/outside via `cv2.pointPolygonTest`
-
-Not implemented yet (README claims them): cursor control, clicking, grab-and-move,
-profiles. **Drawing currently depends on the keyboard — this is the main thing to replace.**
+Phases 1–6 are done and tested by the owner on Windows: touchless drawing (dwell, quick
+zone), grab & move, pinch click, tablet + trackpad pointer modes, camera options with an
+FPS display, and profiles that remember the zone and settings. README.md is the user guide.
+Owner feedback after Phase 6: it works but still feels **fiddly** — the next work is
+tuning and ease of use (see `config.py`), driven by real-world testing. Gloves are still
+untested.
+(The original proof of concept was a single keyboard-driven `poly.py`; that history is
+why the phases below are written as they are.)
 
 ## Gesture design (the spec to implement)
 
