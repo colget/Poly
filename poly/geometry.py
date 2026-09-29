@@ -97,6 +97,83 @@ def translate_within(vertices: list[Point], dx: float, dy: float,
     return [(int(round(x + dx)), int(round(y + dy))) for x, y in vertices]
 
 
+def order_corners(quad: list[Point]) -> list[Point]:
+    """Order 4 corners as top-left, top-right, bottom-right, bottom-left.
+
+    Angle order around the centre already goes clockwise on screen (image y points
+    down); we just rotate the list so it starts at the corner nearest the top-left,
+    i.e. the one with the smallest x + y.
+    """
+    ordered = order_around_centroid(quad)
+    start = min(range(len(ordered)), key=lambda i: ordered[i][0] + ordered[i][1])
+    return ordered[start:] + ordered[:start]
+
+
+class ZoneMapper:
+    """Maps a fingertip position inside the zone to a pixel on the screen.
+
+    * 4-corner convex zone -> perspective transform. Why: a zone traced in the air
+      is never a perfect rectangle (and the camera sees it at an angle). A
+      perspective transform (homography) stretches any 4-sided shape onto the
+      screen rectangle, so each corner of the zone lands exactly on a corner of the
+      screen and every edge lands on a screen edge. Plain scaling would leave
+      parts of the screen unreachable for a skewed shape.
+    * Anything else -> the zone's bounding box is scaled to the screen.
+    * Fingertip outside the zone -> None (the cursor doesn't move).
+
+    `edge_padding` makes the outer strip of the zone (that fraction of its width or
+    height on each side) map onto the screen edge. Why: reaching a screen edge
+    otherwise needs the finger exactly on the zone boundary, where one wobble
+    takes it outside and the cursor stops short.
+    """
+
+    def __init__(self, vertices: list[Point], screen_size: tuple[int, int],
+                 edge_padding: float) -> None:
+        self.vertices = list(vertices)
+        self.screen_size = screen_size
+        self.edge_padding = edge_padding
+        self._homography: np.ndarray | None = None
+        if len(vertices) == 4:
+            corners = np.asarray(order_corners(self.vertices), dtype=np.float32)
+            # A concave or flattened 4-gon folds the mapping over itself, so only
+            # use the perspective transform for a proper convex quadrilateral.
+            if cv2.isContourConvex(corners) and cv2.contourArea(corners) > 1:
+                unit_square = np.float32([(0, 0), (1, 0), (1, 1), (0, 1)])
+                self._homography = cv2.getPerspectiveTransform(corners, unit_square)
+        xs, ys = [v[0] for v in self.vertices], [v[1] for v in self.vertices]
+        self._bbox = (min(xs), min(ys), max(xs), max(ys))
+
+    @property
+    def uses_perspective(self) -> bool:
+        """True if the 4-corner perspective transform is in use."""
+        return self._homography is not None
+
+    def normalised(self, point: tuple[float, float]) -> tuple[float, float]:
+        """Position within the zone as (u, v), where (0, 0) is the top-left corner
+        and (1, 1) the bottom-right. Not clamped."""
+        if self._homography is not None:
+            # Homogeneous coordinates: multiply [x, y, 1] by the 3x3 matrix, then
+            # divide by the third component. That division is what lets straight
+            # lines stay straight while the shape's far side is squeezed/stretched.
+            u, v, w = self._homography @ np.array([point[0], point[1], 1.0])
+            return float(u / w), float(v / w)
+        x0, y0, x1, y1 = self._bbox
+        return ((point[0] - x0) / max(x1 - x0, 1e-9),
+                (point[1] - y0) / max(y1 - y0, 1e-9))
+
+    def map(self, point: tuple[float, float]) -> tuple[int, int] | None:
+        """Screen pixel for `point`, or None if `point` is outside the zone."""
+        if not point_in_polygon(point, self.vertices):
+            return None
+        u, v = self.normalised(point)
+        p = self.edge_padding
+        # Stretch the inner (1 - 2p) of the zone to cover 0..1, then clamp.
+        u = min(max((u - p) / (1 - 2 * p), 0.0), 1.0)
+        v = min(max((v - p) / (1 - 2 * p), 0.0), 1.0)
+        w, h = self.screen_size
+        return int(round(u * (w - 1))), int(round(v * (h - 1)))
+
+
 @dataclass
 class PolygonDraft:
     """The zone being drawn: pixel vertices plus a closed flag.

@@ -165,6 +165,30 @@ def render(image: np.ndarray, result: FrameResult, vertices: list[Point], closed
     cv2.putText(image, status, (12, h - 12), FONT, 0.5, WHITE, 1)
 
 
+def draw_screen_preview(image: np.ndarray, screen_size: tuple[int, int],
+                        position: tuple[int, int] | None, moving: bool,
+                        controls_mouse: bool, width: int = 150) -> None:
+    """Mini map of the computer screen (bottom-right) with a dot where the pointer is.
+
+    Why: without --control-cursor this is the only way to see where the pointer
+    would go - handy for checking the mapping before handing over the real mouse.
+    """
+    img_h, img_w = image.shape[:2]
+    sw, sh = screen_size
+    height = max(1, int(width * sh / sw))
+    x0, y0 = img_w - width - 12, img_h - height - 30
+    x1, y1 = x0 + width, y0 + height
+    area = image[y0:y1, x0:x1]
+    area[:] = (area * 0.35).astype(image.dtype)
+    cv2.rectangle(image, (x0, y0), (x1, y1), WHITE, 1)
+    label, colour = ("Mouse: ON", GREEN) if controls_mouse else ("Mouse: preview", GREY)
+    cv2.putText(image, label, (x0, y0 - 6), FONT, 0.45, colour, 1)
+    if position is not None:
+        px = x0 + int(position[0] / max(sw - 1, 1) * (width - 1))
+        py = y0 + int(position[1] / max(sh - 1, 1) * (height - 1))
+        cv2.circle(image, (px, py), 4, GREEN if moving else GREY, cv2.FILLED)
+
+
 class Flash:
     """A short confirmation message ("Point added") shown for a fixed time."""
 

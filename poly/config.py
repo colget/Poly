@@ -97,6 +97,11 @@ class Config:
     # instant) stops a hand that opens briefly while working from moving the zone.
     grab_hold_s: float = 0.5
 
+    # --- Cursor mapping ----------------------------------------------------------------
+    # This fraction of the zone's width/height on each side maps onto the screen
+    # edge, so edges and corners are easy to reach without leaving the zone.
+    cursor_edge_padding: float = 0.06
+
     # --- Feedback -----------------------------------------------------------------------
     # How long an on-screen confirmation ("Point added") stays visible.
     flash_message_s: float = 1.2

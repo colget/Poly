@@ -11,8 +11,8 @@ Ignore input outside the zone to reduce jitter/false positives.
 
 Built with MediaPipe Hand Landmarker and OpenCV.
 
-Current state (work in progress): creating, moving and clearing the zone is fully touchless.
-Cursor control, clicking and saved profiles are still to come.
+Current state (work in progress): creating, moving and clearing the zone and moving the mouse
+pointer are fully touchless. Clicking and saved profiles are still to come.
 
 | Mode | Gesture | Action |
 |---|---|---|
@@ -20,7 +20,8 @@ Cursor control, clicking and saved profiles are still to come.
 | DRAWING | Hold still on an earlier point (3+ points placed) | Finish: the points are joined into a zone -> ACTIVE |
 | DRAWING | Fist held ~1 s | Undo the last point |
 | DRAWING | Open palm held ~1.5 s (no points yet) | Quick zone: a ready-made rectangle around your hand -> ACTIVE |
-| ACTIVE | Point | Shows whether your fingertip is inside the zone |
+| ACTIVE | Point inside the zone | Moves the mouse pointer: the zone is stretched over the whole screen |
+| ACTIVE | Point outside the zone | Nothing - the pointer stays put, so you can let go of the mouse |
 | ACTIVE | Open palm held ~0.5 s | Pick the zone up; it follows your hand. Close your hand to drop it |
 | ACTIVE | Fist held ~2 s | Clear the zone and draw a new one |
 
@@ -28,6 +29,11 @@ Cursor control, clicking and saved profiles are still to come.
 bottom part of the picture, your palm is below the camera's view and tracking drops out. The
 shaded band at the bottom of the screen shows where this happens. Keep zones above it (quick
 zones do this automatically), sit a little further back, or tilt the camera down.
+
+**Mouse control is off unless you ask for it.** By default a small screen map (bottom-right)
+only *previews* where the pointer would go. Run with `--control-cursor` to move the real mouse.
+A 4-cornered zone is mapped with a perspective transform, so even a skewed zone reaches every
+corner of the screen; other shapes use their bounding box.
 
 The banner at the top always shows the current mode and what you can do. `--sound` adds a short
 beep when a gesture is recognised. Quit with ESC/q or by closing the window.
@@ -46,7 +52,8 @@ python poly.py
 
 Options: `--camera INDEX` (try 1 or 2 if you get no image), `--model PATH` (defaults to
 `hand_landmarker.task` next to `poly.py`), `--source VIDEO_FILE` (replay a recorded clip
-instead of the webcam), `--sound`, and `--debug-keys` (developer fallback: 'd' add point,
+instead of the webcam), `--sound`, `--control-cursor` (move the real mouse), `--screen WxH`
+(override the detected screen size, e.g. `--screen 2560x1440`), and `--debug-keys` (developer fallback: 'd' add point,
 'f' close, 'r' clear).
 
 Run the tests with `pytest`.

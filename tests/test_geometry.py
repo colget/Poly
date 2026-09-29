@@ -2,7 +2,7 @@ import pytest
 
 from poly.geometry import (
     PolygonDraft, distance, landmarks_to_pixels, order_around_centroid, point_in_polygon,
-    quick_zone, translate_within,
+    ZoneMapper, order_corners, quick_zone, translate_within,
 )
 
 SQUARE = [(0, 0), (100, 0), (100, 100), (0, 100)]
@@ -149,3 +149,82 @@ def test_translate_within_stops_at_the_edges():
     sq = [(100, 100), (200, 100), (200, 200), (100, 200)]
     moved = translate_within(sq, -500, 1000, (640, 480), 10)
     assert min(v[0] for v in moved) == 10 and max(v[1] for v in moved) == 470
+
+
+# ------------------------------------------------------------ zone -> screen mapping
+
+SCREEN = (1920, 1080)
+RECT = [(100, 100), (300, 100), (300, 250), (100, 250)]
+# A skewed 4-sided zone, like one traced by hand: narrower at the top.
+TRAPEZOID = [(140, 100), (260, 110), (320, 260), (90, 250)]
+
+
+def mapper(vertices, padding=0.0):
+    return ZoneMapper(vertices, SCREEN, padding)
+
+
+def test_order_corners_starts_top_left_and_goes_clockwise():
+    scrambled = [RECT[2], RECT[0], RECT[3], RECT[1]]
+    assert order_corners(scrambled) == RECT
+
+
+def test_rectangle_corners_map_to_screen_corners():
+    m = mapper(RECT)
+    assert m.uses_perspective
+    assert [m.map(c) for c in RECT] == [(0, 0), (1919, 0), (1919, 1079), (0, 1079)]
+
+
+def near(a, b, tol=1):
+    return abs(a[0] - b[0]) <= tol and abs(a[1] - b[1]) <= tol
+
+
+def test_rectangle_centre_maps_to_screen_centre():
+    # The exact centre is (959.5, 539.5), so either neighbouring pixel is right.
+    assert near(mapper(RECT).map((200, 175)), (960, 540))
+
+
+@pytest.mark.parametrize("outside", [(99, 175), (301, 175), (200, 99), (200, 251), (0, 0)])
+def test_outside_points_do_not_move_the_cursor(outside):
+    assert mapper(RECT).map(outside) is None
+
+
+def test_skewed_zone_still_fills_the_whole_screen():
+    # The point of the perspective transform: every corner of a skewed zone
+    # reaches the matching screen corner...
+    m = mapper(TRAPEZOID)
+    assert m.uses_perspective
+    assert [m.map(c) for c in TRAPEZOID] == [(0, 0), (1919, 0), (1919, 1079), (0, 1079)]
+    # ...points along an edge stay on that screen edge...
+    left_mid = ((140 + 90) / 2, (100 + 250) / 2)
+    assert m.map(left_mid)[0] == 0
+    # ...and where the diagonals cross is the screen centre.
+    (x1, y1), (x2, y2), (x3, y3), (x4, y4) = TRAPEZOID
+    d = (x1 - x3) * (y2 - y4) - (y1 - y3) * (x2 - x4)
+    t = ((x1 - x2) * (y2 - y4) - (y1 - y2) * (x2 - x4)) / d
+    crossing = (x1 + t * (x3 - x1), y1 + t * (y3 - y1))
+    assert near(m.map(crossing), (960, 540))
+
+
+def test_vertex_order_does_not_matter():
+    shuffled = [TRAPEZOID[3], TRAPEZOID[1], TRAPEZOID[0], TRAPEZOID[2]]
+    assert mapper(shuffled).map(TRAPEZOID[0]) == (0, 0)
+
+
+def test_other_shapes_use_the_bounding_box():
+    pentagon = [(100, 100), (300, 100), (320, 200), (200, 260), (80, 200)]
+    m = mapper(pentagon)
+    assert not m.uses_perspective
+    assert m.map((200, 180)) == (round((200 - 80) / 240 * 1919), round(80 / 160 * 1079))
+
+
+def test_concave_four_sided_zone_falls_back_to_bounding_box():
+    dart = [(100, 100), (200, 180), (300, 100), (200, 300)]
+    assert not mapper(dart).uses_perspective
+
+
+def test_edge_padding_makes_edges_easy_to_reach():
+    m = mapper(RECT, padding=0.1)
+    # 5% in from the left edge is inside the padding strip: already at the edge.
+    assert m.map((110, 175))[0] == 0
+    assert m.map((290, 240)) == (1919, 1079)
+    assert near(m.map((200, 175)), (960, 540))  # centre unaffected

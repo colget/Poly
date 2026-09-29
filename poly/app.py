@@ -12,8 +12,9 @@ import cv2
 
 from poly import feedback
 from poly.config import DEFAULT_CONFIG
-from poly.geometry import landmarks_to_pixels
-from poly.modes import ModeMachine
+from poly.cursor import detect_screen_size, make_cursor, parse_screen_size
+from poly.geometry import ZoneMapper, landmarks_to_pixels
+from poly.modes import ModeMachine, should_move_cursor
 from poly.tracker import HandTracker
 
 # hand_landmarker.task sits in the repo root, one level above this package.
@@ -27,6 +28,7 @@ MODEL_URL = (
 WINDOW_NAME = "Poly - Finger Tracking (ESC/q to quit)"
 QUIT_KEYS = (27, ord("q"))  # ESC, q
 FALLBACK_FPS = 30.0  # used when a video file doesn't report its frame rate
+FALLBACK_SCREEN = (1920, 1080)  # used if the screen size can't be detected
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -42,6 +44,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="developer fallback: d = add vertex, f = close, r = clear")
     parser.add_argument("--sound", action="store_true",
                         help="beep when a gesture is recognised")
+    parser.add_argument("--control-cursor", action="store_true",
+                        help="actually move the mouse pointer (otherwise only a preview is shown)")
+    parser.add_argument("--screen", type=parse_screen_size, default=None, metavar="WxH",
+                        help="screen size, e.g. 1920x1080 (default: detected automatically)")
     return parser.parse_args(argv)
 
 
@@ -98,6 +104,9 @@ def main(argv: list[str] | None = None) -> None:
     # Video file: wait one frame period so playback runs at roughly real speed.
     key_wait_ms = max(1, int(1000 / fps)) if replaying else 1
 
+    screen_size = args.screen or detect_screen_size() or FALLBACK_SCREEN
+    cursor = make_cursor(args.control_cursor)
+    mapper: ZoneMapper | None = None
     machine = ModeMachine(config)
     flash = feedback.Flash(config.flash_message_s)
     sounds = feedback.Sounds(args.sound)
@@ -109,7 +118,13 @@ def main(argv: list[str] | None = None) -> None:
         print("      Hold still on an earlier point to finish. Fist 1 s = undo.")
         print("      Or hold an open palm 1.5 s for a ready-made rectangle zone.")
         print("Zone: open palm = pick the zone up and move it; close your hand to drop it.")
-        print("      Fist held 2 s = clear and redraw.")
+        print("      Point inside the zone to move the pointer. Fist held 2 s = clear and redraw.")
+        if cursor.controls_mouse:
+            print(f"Mouse control ON (screen {screen_size[0]}x{screen_size[1]}). "
+                  "Move your finger out of the zone to let go of the mouse.")
+        else:
+            print("Mouse control OFF: the pointer is only previewed (bottom-right). "
+                  "Add --control-cursor to move the real mouse.")
         if args.debug_keys:
             print("Debug keys: 'd' add vertex, 'f' close polygon (3+ points), 'r' clear")
         print("ESC or 'q' (or close the window) to quit.\n")
@@ -142,8 +157,25 @@ def main(argv: list[str] | None = None) -> None:
                 flash.show(event.value, now_s)
                 sounds.play(event)
 
+            # Rebuild the zone -> screen mapping whenever the zone changes shape or
+            # position (closed, quick zone, moved).
+            if not machine.polygon.closed:
+                mapper = None
+            elif mapper is None or mapper.vertices != machine.polygon.vertices:
+                mapper = ZoneMapper(machine.polygon.vertices, screen_size,
+                                    config.cursor_edge_padding)
+            cursor_moving = False
+            if mapper is not None and should_move_cursor(result):
+                target = mapper.map(result.tip)
+                if target is not None:
+                    cursor.move_to(target)
+                    cursor_moving = True
+
             feedback.render(frame, result, machine.polygon.vertices, machine.polygon.closed,
                             config, args.debug_keys)
+            if machine.polygon.closed:
+                feedback.draw_screen_preview(frame, screen_size, cursor.position,
+                                             cursor_moving, cursor.controls_mouse)
             flash.draw(frame, now_s)
             cv2.imshow(WINDOW_NAME, frame)
 

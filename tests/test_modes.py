@@ -7,7 +7,7 @@ import pytest
 from poly.config import DEFAULT_CONFIG
 from poly.geometry import PolygonDraft, distance
 from poly.gestures import Pose, palm_centre
-from poly.modes import Event, FrameResult, HoldAction, Mode, ModeMachine
+from poly.modes import Event, FrameResult, HoldAction, Mode, ModeMachine, should_move_cursor
 from synthetic_hands import make_hand
 
 FPS = 30
@@ -393,3 +393,23 @@ def test_palm_in_drawing_with_points_is_ignored():
     sim.draw(SQUARE[:2])
     r = sim.hold(Pose.OPEN_PALM, SQUARE[1], 2.0)
     assert r.hold_action is None and sim.m.mode is Mode.DRAWING
+
+
+# ---------------------------------------------------------------- cursor
+
+
+def test_cursor_moves_only_when_pointing_inside_an_active_zone():
+    sim = active_sim()
+    assert should_move_cursor(sim.hold(Pose.POINT, (300, 250), 0.3))      # inside
+    assert not should_move_cursor(sim.move(Pose.POINT, (300, 250), (600, 250), 0.5))  # outside
+    assert not should_move_cursor(sim.hold(Pose.FIST, (300, 250), 0.3))  # wrong shape
+    assert not should_move_cursor(sim.hold(Pose.OPEN_PALM, (300, 250), 1.0))  # moving zone
+    assert sim.m.mode is Mode.GRAB
+    assert not should_move_cursor(sim.no_hand(20))                        # no hand
+
+
+def test_cursor_never_moves_while_drawing():
+    sim = Sim()
+    sim.draw(SQUARE[:3])
+    r = sim.hold(Pose.POINT, (300, 250), 0.3)
+    assert r.mode is Mode.DRAWING and not should_move_cursor(r)

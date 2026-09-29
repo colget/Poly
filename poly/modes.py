@@ -8,7 +8,8 @@ code here - feed it synthetic landmarks and fake times in tests.
     ACTIVE  --open palm held grab_hold_s-------------> GRAB (zone follows the palm)
     GRAB    --hand closes / hand lost----------------> ACTIVE (zone stays where dropped)
 
-Clicking (pinch) arrives in a later phase.
+The cursor moves only in ACTIVE, while pointing inside the zone (see
+should_move_cursor). Clicking (pinch) arrives in a later phase.
 """
 
 from __future__ import annotations
@@ -306,6 +307,17 @@ class ModeMachine:
         self._pose.reset(Pose.NONE)
         self._tip_filter.reset()
         self._palm_filter.reset()
+
+
+def should_move_cursor(result: FrameResult) -> bool:
+    """The cursor follows the fingertip only when pointing inside an ACTIVE zone.
+
+    Everything else leaves it alone: outside the zone (so you can work normally),
+    any other hand shape (so a fist or open palm never drags the pointer), and
+    while moving the zone or when no hand is seen.
+    """
+    return (result.mode is Mode.ACTIVE and result.hand_visible and result.tip is not None
+            and result.pose is Pose.POINT and result.inside)
 
 
 def _active_hold(*holds: tuple[HoldAction, HoldTimer]) -> tuple[HoldAction | None, float]:

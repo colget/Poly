@@ -5,4 +5,7 @@ mediapipe==1.0.1
 # confusing ways, so we pin the contrib build instead (it's a superset).
 opencv-contrib-python==5.0.0.93
 numpy==2.4.6
+# Moves the mouse pointer (only with --control-cursor). Chosen over pyautogui,
+# which pauses 0.1 s after every call and aborts at screen corners.
+pynput==1.8.2
 pytest==9.1.1

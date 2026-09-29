@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from poly.app import DEFAULT_MODEL_PATH, handle_debug_key, parse_args
 from poly.config import DEFAULT_CONFIG
 from poly.modes import Mode, ModeMachine
@@ -12,15 +14,20 @@ def test_default_args():
     assert args.source is None
     assert args.debug_keys is False
     assert args.sound is False
+    assert args.control_cursor is False
+    assert args.screen is None
 
 
 def test_all_args():
-    args = parse_args(["--camera", "2", "--model", "m.task", "--source", "clip.mp4", "--debug-keys", "--sound"])
+    args = parse_args(["--camera", "2", "--model", "m.task", "--source", "clip.mp4", "--debug-keys", "--sound",
+                       "--control-cursor", "--screen", "2560x1440"])
     assert args.camera == 2
     assert args.model == Path("m.task")
     assert args.source == Path("clip.mp4")
     assert args.debug_keys is True
     assert args.sound is True
+    assert args.control_cursor is True
+    assert args.screen == (2560, 1440)
 
 
 def test_debug_keys_draw_close_and_clear():
@@ -51,3 +58,8 @@ def test_unrelated_key_does_nothing():
     m = ModeMachine(DEFAULT_CONFIG)
     assert handle_debug_key(ord("x"), m, (0, 0)) is None
     assert handle_debug_key(255, m, (0, 0)) is None  # no key pressed
+
+
+def test_bad_screen_size_is_rejected():
+    with pytest.raises(SystemExit):
+        parse_args(["--screen", "big"])
