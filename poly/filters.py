@@ -25,6 +25,36 @@ def smoothing_factor(elapsed_s: float, cutoff_hz: float) -> float:
     return r / (r + 1)
 
 
+class FpsMeter:
+    """Frames per second, smoothed so the on-screen number is readable.
+
+    Each frame's interval is blended into a running average (exponential moving
+    average). `smoothing` is the weight kept from the old average: 0.9 means a
+    new frame nudges the estimate by 10%, so the number settles within ~1 s.
+    """
+
+    def __init__(self, smoothing: float = 0.9) -> None:
+        self.smoothing = smoothing
+        self._last: float | None = None
+        self._interval: float | None = None
+
+    def tick(self, now_s: float) -> float | None:
+        """Record a frame at `now_s`; return the current estimate (None at first)."""
+        if self._last is not None and now_s > self._last:
+            dt = now_s - self._last
+            if self._interval is None:
+                self._interval = dt
+            else:
+                self._interval = self.smoothing * self._interval + (1 - self.smoothing) * dt
+        self._last = now_s
+        return self.fps
+
+    @property
+    def fps(self) -> float | None:
+        """Current smoothed frames per second, or None before two frames."""
+        return 1.0 / self._interval if self._interval else None
+
+
 class OneEuroFilter:
     """One Euro filter for a single number. Timestamps are passed in (seconds)."""
 

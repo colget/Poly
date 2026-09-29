@@ -15,17 +15,6 @@ from __future__ import annotations
 import sys
 
 
-def parse_screen_size(text: str) -> tuple[int, int]:
-    """Parse "1920x1080" into (1920, 1080)."""
-    try:
-        w, h = (int(part) for part in text.lower().split("x"))
-    except ValueError:
-        raise ValueError(f"screen size must look like 1920x1080, got {text!r}") from None
-    if w <= 0 or h <= 0:
-        raise ValueError(f"screen size must be positive, got {text!r}")
-    return w, h
-
-
 def detect_screen_size() -> tuple[int, int] | None:
     """Size of the primary screen in the same units the mouse uses, or None.
 

@@ -57,6 +57,18 @@ instead of the webcam), `--sound`, `--control-cursor` (move the real mouse), `--
 (override the detected screen size, e.g. `--screen 2560x1440`), and `--debug-keys` (developer fallback: 'd' add point,
 'f' close, 'r' clear).
 
+**If tracking feels laggy or jumpy**, try the camera options. The app prints what the camera
+actually delivers at startup, and the live frame rate is shown at the bottom of the window:
+
+```
+python poly.py --camera-backend dshow
+python poly.py --camera-backend dshow --resolution 1280x720 --fps 60
+```
+
+`dshow` (DirectShow) is often smoother than Windows' default camera driver. A higher resolution
+helps when you're far from the camera. More frames per second makes the pointer feel less
+laggy. Cameras ignore settings they can't do, so check the printed line.
+
 Run the tests with `pytest`.
 
 

@@ -12,8 +12,9 @@ import cv2
 
 from poly import feedback
 from poly.config import DEFAULT_CONFIG
-from poly.cursor import detect_screen_size, make_cursor, parse_screen_size
-from poly.geometry import ZoneMapper, landmarks_to_pixels
+from poly.cursor import detect_screen_size, make_cursor
+from poly.filters import FpsMeter
+from poly.geometry import ZoneMapper, landmarks_to_pixels, parse_size
 from poly.modes import Event, ModeMachine, should_move_cursor
 from poly.tracker import HandTracker
 
@@ -29,6 +30,7 @@ WINDOW_NAME = "Poly - Finger Tracking (ESC/q to quit)"
 QUIT_KEYS = (27, ord("q"))  # ESC, q
 FALLBACK_FPS = 30.0  # used when a video file doesn't report its frame rate
 FALLBACK_SCREEN = (1920, 1080)  # used if the screen size can't be detected
+CAMERA_BACKENDS = {"auto": cv2.CAP_ANY, "dshow": cv2.CAP_DSHOW, "msmf": cv2.CAP_MSMF}
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -40,13 +42,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="path to hand_landmarker.task (default: next to poly.py)")
     parser.add_argument("--source", type=Path, default=None, metavar="VIDEO_FILE",
                         help="replay a recorded video instead of the webcam")
+    parser.add_argument("--camera-backend", choices=sorted(CAMERA_BACKENDS), default="auto",
+                        help="Windows camera driver: dshow (DirectShow) is often smoother "
+                             "than the default msmf (Media Foundation)")
+    parser.add_argument("--resolution", type=parse_size, default=None, metavar="WxH",
+                        help="ask the camera for this resolution, e.g. 1280x720 "
+                             "(helps when your hand is far from the camera)")
+    parser.add_argument("--fps", type=int, default=None, metavar="N",
+                        help="ask the camera for this frame rate, e.g. 60")
     parser.add_argument("--debug-keys", action="store_true",
                         help="developer fallback: d = add vertex, f = close, r = clear")
     parser.add_argument("--sound", action="store_true",
                         help="beep when a gesture is recognised")
     parser.add_argument("--control-cursor", action="store_true",
                         help="actually move the mouse pointer (otherwise only a preview is shown)")
-    parser.add_argument("--screen", type=parse_screen_size, default=None, metavar="WxH",
+    parser.add_argument("--screen", type=parse_size, default=None, metavar="WxH",
                         help="screen size, e.g. 1920x1080 (default: detected automatically)")
     return parser.parse_args(argv)
 
@@ -75,7 +85,30 @@ def _open_capture(args: argparse.Namespace) -> cv2.VideoCapture:
             print(f"ERROR: video file not found: {args.source}")
             sys.exit(1)
         return cv2.VideoCapture(str(args.source))
-    return cv2.VideoCapture(args.camera)
+    cap = cv2.VideoCapture(args.camera, CAMERA_BACKENDS[args.camera_backend])
+    if cap.isOpened() and (args.resolution or args.fps):
+        # Most USB webcams can only do high resolutions / frame rates in MJPG
+        # (compressed) mode - uncompressed video doesn't fit through USB 2 fast
+        # enough - so ask for MJPG first. Cameras that can't do it just ignore it.
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        if args.resolution:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.resolution[0])
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.resolution[1])
+        if args.fps:
+            cap.set(cv2.CAP_PROP_FPS, args.fps)
+    return cap
+
+
+def _describe_camera(cap: cv2.VideoCapture) -> str:
+    """What the camera actually agreed to (it may ignore requests it can't meet)."""
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    try:
+        backend = cap.getBackendName()
+    except cv2.error:
+        backend = "unknown"
+    return f"{w}x{h} @ {fps:.0f} fps reported (driver: {backend})"
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -99,6 +132,7 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     replaying = args.source is not None
+    print(("Video: " if replaying else "Camera: ") + _describe_camera(cap))
     fps = cap.get(cv2.CAP_PROP_FPS) or FALLBACK_FPS
     # Webcam: wait 1 ms for a key and run as fast as frames arrive.
     # Video file: wait one frame period so playback runs at roughly real speed.
@@ -131,6 +165,7 @@ def main(argv: list[str] | None = None) -> None:
         print("ESC or 'q' (or close the window) to quit.\n")
 
         frame_index = 0
+        fps_meter = FpsMeter()
         while True:
             ok, frame = cap.read()
             if not ok:
@@ -148,6 +183,9 @@ def main(argv: list[str] | None = None) -> None:
             # (unlike the wall clock) never jumps backwards.
             now_s = frame_index / fps if replaying else time.monotonic()
             frame_index += 1
+            # Measured with the real clock even for replays: this is how fast the
+            # app keeps up, which is what the pointer feels like.
+            measured_fps = fps_meter.tick(time.monotonic())
 
             landmarks = tracker.detect(frame, now_s)
             if landmarks is not None:
@@ -175,7 +213,7 @@ def main(argv: list[str] | None = None) -> None:
                     cursor_moving = True
 
             feedback.render(frame, result, machine.polygon.vertices, machine.polygon.closed,
-                            config, args.debug_keys)
+                            config, args.debug_keys, measured_fps)
             if machine.polygon.closed:
                 feedback.draw_screen_preview(frame, screen_size, cursor.position,
                                              cursor_moving, cursor.controls_mouse)

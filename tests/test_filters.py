@@ -66,3 +66,32 @@ def test_point_filter_smooths_both_axes():
     f((0.0, 0.0), 0.0)
     x, y = f((10.0, -10.0), DT)
     assert 0 < x < 10 and -10 < y < 0
+
+
+def test_fps_meter_measures_steady_rate():
+    from poly.filters import FpsMeter
+    meter = FpsMeter()
+    assert meter.tick(0.0) is None  # need two frames
+    for i in range(1, 100):
+        fps = meter.tick(i / 30)
+    assert fps == pytest.approx(30, rel=0.01)
+
+
+def test_fps_meter_follows_a_slowdown():
+    from poly.filters import FpsMeter
+    meter = FpsMeter()
+    t = 0.0
+    for _ in range(60):
+        t += 1 / 30
+        meter.tick(t)
+    for _ in range(60):
+        t += 1 / 15
+        meter.tick(t)
+    assert meter.fps == pytest.approx(15, rel=0.05)
+
+
+def test_fps_meter_ignores_repeated_time():
+    from poly.filters import FpsMeter
+    meter = FpsMeter()
+    meter.tick(1.0)
+    assert meter.tick(1.0) is None

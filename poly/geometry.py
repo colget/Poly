@@ -12,6 +12,17 @@ import numpy as np
 Point = tuple[int, int]
 
 
+def parse_size(text: str) -> tuple[int, int]:
+    """Parse "1920x1080" into (1920, 1080). Used for --screen and --resolution."""
+    try:
+        w, h = (int(part) for part in text.lower().split("x"))
+    except ValueError:
+        raise ValueError(f"size must look like 1920x1080, got {text!r}") from None
+    if w <= 0 or h <= 0:
+        raise ValueError(f"size must be positive, got {text!r}")
+    return w, h
+
+
 def landmarks_to_pixels(landmarks: list[tuple[float, float, float]], width: int,
                         height: int) -> list[tuple[float, float, float]]:
     """Convert normalised MediaPipe landmarks to pixel units, keeping sub-pixel

@@ -3,18 +3,19 @@ import types
 
 import pytest
 
-from poly.cursor import PreviewCursor, SystemCursor, make_cursor, parse_screen_size
+from poly.cursor import PreviewCursor, SystemCursor, make_cursor
+from poly.geometry import parse_size
 
 
-def test_parse_screen_size():
-    assert parse_screen_size("1920x1080") == (1920, 1080)
-    assert parse_screen_size("2560X1440") == (2560, 1440)
+def test_parse_size():
+    assert parse_size("1920x1080") == (1920, 1080)
+    assert parse_size("2560X1440") == (2560, 1440)
 
 
 @pytest.mark.parametrize("bad", ["1920", "axb", "0x100", "1920x1080x2"])
-def test_parse_screen_size_rejects_nonsense(bad):
+def test_parse_size_rejects_nonsense(bad):
     with pytest.raises(ValueError):
-        parse_screen_size(bad)
+        parse_size(bad)
 
 
 def test_preview_never_needs_the_real_mouse():
