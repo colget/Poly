@@ -180,6 +180,11 @@ summarise what changed and list the manual test steps.
 - **Auto-save** on polygon close; **auto-load** the last profile at startup (start in
   ACTIVE). Why: the user shouldn't have to redraw the zone every time — and there's no
   keyboard to pick a file. `--profile NAME` and `--fresh` CLI args for setup.
+- Implemented (owner request): profiles also remember the settings `camera`,
+  `camera_backend`, `resolution`, `fps`, `pointer`, `sound`. Precedence: typed option >
+  saved > default (profile-able args default to `None` = "not typed"). The zone is also
+  saved after it's moved (on drop) or cleared. `--control-cursor` is **never** saved
+  (mouse control must be a conscious choice each run). `--source` replays never save.
 - **Done when:** round-trip tests pass.
 
 ### Phase 6 — Docs

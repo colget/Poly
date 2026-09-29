@@ -14,9 +14,19 @@ from poly import feedback
 from poly.config import DEFAULT_CONFIG
 from poly.cursor import detect_screen_size, make_cursor
 from poly.filters import FpsMeter
-from poly.geometry import ZoneMapper, landmarks_to_pixels, parse_size
-from poly.modes import Event, ModeMachine, should_move_cursor
+from poly.geometry import PolygonDraft, ZoneMapper, landmarks_to_pixels, parse_size
+from poly.modes import Event, Mode, ModeMachine, should_move_cursor
 from poly.pointer import PointerMode, TrackpadPointer
+from poly.profiles import (
+    DEFAULT_PROFILE,
+    Profile,
+    ProfileStore,
+    Settings,
+    denormalise,
+    normalise,
+    resolve_settings,
+    valid_profile_name,
+)
 from poly.tracker import HandTracker
 
 # hand_landmarker.task sits in the repo root, one level above this package.
@@ -32,18 +42,46 @@ QUIT_KEYS = (27, ord("q"))  # ESC, q
 FALLBACK_FPS = 30.0  # used when a video file doesn't report its frame rate
 FALLBACK_SCREEN = (1920, 1080)  # used if the screen size can't be detected
 CAMERA_BACKENDS = {"auto": cv2.CAP_ANY, "dshow": cv2.CAP_DSHOW, "msmf": cv2.CAP_MSMF}
+PROFILE_DIR = DEFAULT_MODEL_PATH.parent / "profiles"
+# Options remembered in the profile, and their built-in defaults. --control-cursor is
+# deliberately NOT remembered: handing over the real mouse must be a conscious choice
+# every run, so a tracking glitch can never grab it by surprise.
+SETTING_DEFAULTS: Settings = {
+    "camera": 0,
+    "camera_backend": "auto",
+    "resolution": None,
+    "fps": None,
+    "pointer": PointerMode.TABLET.value,
+    "sound": False,
+}
+
+
+def _profile_name(text: str) -> str:
+    if not valid_profile_name(text):
+        raise argparse.ArgumentTypeError("use 1-64 letters, digits, - or _")
+    return text
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="Poly: touchless polygon trackpad.")
-    parser.add_argument("--camera", type=int, default=0, metavar="INDEX",
+    # Options that are saved in the profile default to None, meaning "not typed":
+    # only options you actually type override what the profile remembers.
+    parser = argparse.ArgumentParser(
+        description="Poly: touchless polygon trackpad.",
+        epilog="Your zone and the camera/pointer/sound options are saved in a profile "
+               "and reused next time; options you type override the saved ones.")
+    parser.add_argument("--profile", type=_profile_name, default=None, metavar="NAME",
+                        help=f"profile to load and save (default: the last one used, "
+                             f"or '{DEFAULT_PROFILE}')")
+    parser.add_argument("--fresh", action="store_true",
+                        help="ignore the saved zone and settings and start from scratch")
+    parser.add_argument("--camera", type=int, default=None, metavar="INDEX",
                         help="webcam index (default 0; try 1 or 2 if you get no image)")
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL_PATH, metavar="PATH",
                         help="path to hand_landmarker.task (default: next to poly.py)")
     parser.add_argument("--source", type=Path, default=None, metavar="VIDEO_FILE",
                         help="replay a recorded video instead of the webcam")
-    parser.add_argument("--camera-backend", choices=sorted(CAMERA_BACKENDS), default="auto",
+    parser.add_argument("--camera-backend", choices=sorted(CAMERA_BACKENDS), default=None,
                         help="Windows camera driver: dshow (DirectShow) is often smoother "
                              "than the default msmf (Media Foundation)")
     parser.add_argument("--resolution", type=parse_size, default=None, metavar="WxH",
@@ -53,17 +91,90 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="ask the camera for this frame rate, e.g. 60")
     parser.add_argument("--debug-keys", action="store_true",
                         help="developer fallback: d = add vertex, f = close, r = clear")
-    parser.add_argument("--sound", action="store_true",
-                        help="beep when a gesture is recognised")
+    parser.add_argument("--sound", action=argparse.BooleanOptionalAction, default=None,
+                        help="beep when a gesture is recognised (--no-sound to turn off)")
     parser.add_argument("--control-cursor", action="store_true",
                         help="actually move the mouse pointer (otherwise only a preview is shown)")
     parser.add_argument("--pointer", type=PointerMode, choices=list(PointerMode),
-                        default=PointerMode.TABLET, metavar="{tablet,trackpad}",
+                        default=None, metavar="{tablet,trackpad}",
                         help="tablet: each spot in the zone is a spot on screen (default). "
                              "trackpad: moving your finger nudges the pointer, with acceleration")
     parser.add_argument("--screen", type=parse_size, default=None, metavar="WxH",
                         help="screen size, e.g. 1920x1080 (default: detected automatically)")
     return parser.parse_args(argv)
+
+
+def cli_settings(args: argparse.Namespace) -> Settings:
+    """The profile-able options on `args`, in JSON-friendly form (None = not given)."""
+    return {
+        "camera": args.camera,
+        "camera_backend": args.camera_backend,
+        "resolution": list(args.resolution) if args.resolution else None,
+        "fps": args.fps,
+        "pointer": args.pointer.value if args.pointer else None,
+        "sound": args.sound,
+    }
+
+
+def _to_backend(value: object) -> str:
+    if value not in CAMERA_BACKENDS:
+        raise ValueError(value)
+    return str(value)
+
+
+def _to_resolution(value: object) -> tuple[int, int] | None:
+    return None if value is None else parse_size(f"{value[0]}x{value[1]}")  # type: ignore[index]
+
+
+def _to_optional_int(value: object) -> int | None:
+    return None if value is None else int(value)  # type: ignore[arg-type]
+
+
+# How to turn each saved (JSON) setting back into the type the app uses.
+_SETTING_TYPES = {
+    "camera": int,
+    "camera_backend": _to_backend,
+    "resolution": _to_resolution,
+    "fps": _to_optional_int,
+    "pointer": PointerMode,
+    "sound": bool,
+}
+
+
+def apply_settings(args: argparse.Namespace, settings: Settings) -> Settings:
+    """Put resolved settings onto `args` as the types the app uses. A value that
+    doesn't make sense (e.g. from a hand-edited profile) falls back to its default
+    with a warning instead of crashing. Returns the settings actually used."""
+    for key, convert in _SETTING_TYPES.items():
+        try:
+            value = convert(settings.get(key))
+        except (TypeError, ValueError, IndexError, KeyError):
+            print(f"Warning: ignoring invalid saved setting {key}={settings.get(key)!r}")
+            value = convert(SETTING_DEFAULTS[key])
+        setattr(args, key, value)
+    return cli_settings(args)
+
+
+def prepare_profile(args: argparse.Namespace, store: ProfileStore) -> Profile:
+    """Load this run's profile and resolve its settings onto `args`:
+    typed options > saved in the profile > defaults. --fresh ignores what's saved."""
+    name = args.profile or store.last_used() or DEFAULT_PROFILE
+    saved = None if args.fresh else store.load(name)
+    settings = resolve_settings(cli_settings(args), saved.settings if saved else {},
+                                SETTING_DEFAULTS)
+    return Profile(name=name, zone=saved.zone if saved else None,
+                   frame_size=saved.frame_size if saved else None,
+                   settings=apply_settings(args, settings))
+
+
+def save_profile(store: ProfileStore, profile: Profile) -> None:
+    """Save and remember as last used. A failure (e.g. a read-only folder) is
+    reported but never stops the app - losing the zone beats losing the pointer."""
+    try:
+        store.save(profile)
+        store.set_last_used(profile.name)
+    except OSError as exc:
+        print(f"Warning: could not save profile '{profile.name}': {exc}")
 
 
 def handle_debug_key(key: int, machine: ModeMachine,
@@ -104,6 +215,18 @@ def _open_capture(args: argparse.Namespace) -> cv2.VideoCapture:
     return cap
 
 
+def _start_machine(config, profile: Profile, frame_size: tuple[int, int]) -> ModeMachine:
+    """State machine for this run: ACTIVE with the saved zone if there is one."""
+    if not profile.zone:
+        return ModeMachine(config)
+    note = ""
+    if profile.frame_size and tuple(profile.frame_size) != frame_size:
+        note = f" (drawn at {profile.frame_size[0]}x{profile.frame_size[1]}, rescaled)"
+    print(f"Loaded zone from profile '{profile.name}'{note}.")
+    vertices = denormalise(profile.zone, frame_size)
+    return ModeMachine(config, PolygonDraft(vertices=vertices, closed=True))
+
+
 def _describe_camera(cap: cv2.VideoCapture) -> str:
     """What the camera actually agreed to (it may ignore requests it can't meet)."""
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -120,6 +243,12 @@ def main(argv: list[str] | None = None) -> None:
     """Run the app until the user quits or the video/camera ends."""
     args = parse_args(argv)
     config = DEFAULT_CONFIG
+    store = ProfileStore(PROFILE_DIR)
+    profile = prepare_profile(args, store)
+    # A replayed clip is for testing: use the profile, but never overwrite it.
+    saving = args.source is None
+    if saving:
+        save_profile(store, profile)  # remembers the settings even before a zone exists
 
     if not args.model.exists():
         print(f"\nERROR: model file not found at:\n  {args.model}")
@@ -147,7 +276,10 @@ def main(argv: list[str] | None = None) -> None:
     cursor = make_cursor(args.control_cursor)
     mapper: ZoneMapper | None = None
     trackpad = TrackpadPointer(screen_size, config)
-    machine = ModeMachine(config)
+    # Created on the first frame, once the image size is known: the saved zone is
+    # stored as fractions of the image and needs it to become pixels again.
+    machine: ModeMachine | None = None
+    saved_zone_key: tuple | None = None
     flash = feedback.Flash(config.flash_message_s)
     sounds = feedback.Sounds(args.sound)
     tracker = None
@@ -160,6 +292,7 @@ def main(argv: list[str] | None = None) -> None:
         print("Zone: open palm = pick the zone up and move it; close your hand to drop it.")
         print("      Point inside the zone to move the pointer; pinch thumb + index to click.")
         print("      Fist held 2 s = clear and redraw.")
+        print(f"Profile: {profile.name}" + ("" if saving else " (read-only while replaying)"))
         print(f"Pointer mode: {args.pointer.value}")
         if cursor.controls_mouse:
             print(f"Mouse control ON (screen {screen_size[0]}x{screen_size[1]}). "
@@ -194,6 +327,12 @@ def main(argv: list[str] | None = None) -> None:
             # app keeps up, which is what the pointer feels like.
             measured_fps = fps_meter.tick(time.monotonic())
 
+            if machine is None:
+                machine = _start_machine(config, profile, (w, h))
+                if machine.polygon.closed:
+                    saved_zone_key = tuple(machine.polygon.vertices)
+                    flash.show(f"Zone loaded from profile '{profile.name}'", now_s)
+
             landmarks = tracker.detect(frame, now_s)
             if landmarks is not None:
                 landmarks = landmarks_to_pixels(landmarks, w, h)
@@ -204,6 +343,16 @@ def main(argv: list[str] | None = None) -> None:
                 sounds.play(event)
                 if event is Event.CLICK:
                     cursor.click()
+
+            # Auto-save whenever the zone changes: finished, quick zone, moved (saved
+            # once it's dropped, not on every frame of the drag) or cleared.
+            zone_key = tuple(machine.polygon.vertices) if machine.polygon.closed else None
+            if saving and machine.mode is not Mode.GRAB and zone_key != saved_zone_key:
+                profile.zone = normalise(machine.polygon.vertices, (w, h)) if zone_key else None
+                profile.frame_size = (w, h)
+                save_profile(store, profile)
+                saved_zone_key = zone_key
+                print(f"Profile '{profile.name}' saved.")
 
             # Rebuild the zone -> screen mapping whenever the zone changes shape or
             # position (closed, quick zone, moved).
@@ -227,7 +376,7 @@ def main(argv: list[str] | None = None) -> None:
                     cursor_moving = True
 
             feedback.render(frame, result, machine.polygon.vertices, machine.polygon.closed,
-                            config, args.debug_keys, measured_fps)
+                            config, args.debug_keys, measured_fps, profile.name)
             if machine.polygon.closed:
                 feedback.draw_screen_preview(frame, screen_size, cursor.position,
                                              cursor_moving, cursor.controls_mouse,

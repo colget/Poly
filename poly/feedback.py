@@ -138,7 +138,8 @@ def mode_hint(result: FrameResult, vertex_count: int, min_vertices: int) -> str:
 
 
 def render(image: np.ndarray, result: FrameResult, vertices: list[Point], closed: bool,
-           config: Config, debug_keys: bool, fps: float | None = None) -> None:
+           config: Config, debug_keys: bool, fps: float | None = None,
+           profile_name: str | None = None) -> None:
     """Draw every overlay for one frame onto `image` (in place)."""
     # The reach band matters while placing a zone; in ACTIVE it would just clutter.
     if result.mode is not Mode.ACTIVE and result.hand_size is not None:
@@ -174,6 +175,8 @@ def render(image: np.ndarray, result: FrameResult, vertices: list[Point], closed
     status = f"Pose: {result.pose.value}   Points: {len(vertices)}"
     if fps is not None:
         status += f"   {fps:.0f} fps"
+    if profile_name:
+        status += f"   Profile: {profile_name}"
     if debug_keys:
         status += "   [debug keys: d/f/r]"
     cv2.putText(image, status, (12, h - 12), FONT, 0.5, WHITE, 1)

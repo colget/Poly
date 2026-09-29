@@ -10,3 +10,4 @@ __pycache__/
 
 # Saved polygon profiles are per-machine
 profiles/*.json
+profiles/.*.tmp

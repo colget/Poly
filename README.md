@@ -11,8 +11,8 @@ Ignore input outside the zone to reduce jitter/false positives.
 
 Built with MediaPipe Hand Landmarker and OpenCV.
 
-Current state (work in progress): creating, moving and clearing the zone and moving the mouse
-pointer and clicking are fully touchless. Saved profiles are still to come.
+Current state (work in progress): creating, moving and clearing the zone, moving the mouse
+pointer and clicking are fully touchless, and your zone and settings are remembered.
 
 | Mode | Gesture | Action |
 |---|---|---|
@@ -60,7 +60,8 @@ python poly.py
 
 Options: `--camera INDEX` (try 1 or 2 if you get no image), `--model PATH` (defaults to
 `hand_landmarker.task` next to `poly.py`), `--source VIDEO_FILE` (replay a recorded clip
-instead of the webcam), `--sound`, `--control-cursor` (move the real mouse),
+instead of the webcam), `--profile NAME`, `--fresh`, `--sound`/`--no-sound`,
+`--control-cursor` (move the real mouse),
 `--pointer tablet|trackpad`, `--camera-backend`, `--resolution WxH`, `--fps N`, `--screen WxH`
 (override the detected screen size, e.g. `--screen 2560x1440`), and `--debug-keys` (developer fallback: 'd' add point,
 'f' close, 'r' clear).
@@ -76,6 +77,26 @@ python poly.py --camera-backend dshow --resolution 1280x720 --fps 60
 `dshow` (DirectShow) is often smoother than Windows' default camera driver. A higher resolution
 helps when you're far from the camera. More frames per second makes the pointer feel less
 laggy. Cameras ignore settings they can't do, so check the printed line.
+
+### Profiles: your zone and settings are remembered
+
+Your zone is saved automatically whenever you finish, create, move or clear it, and loaded
+next time. If there is a saved zone, the app starts ready to use (ACTIVE) and says so on screen.
+The options `--camera`, `--camera-backend`, `--resolution`, `--fps`, `--pointer` and
+`--sound`/`--no-sound` are remembered too, so after one run with your favourite options, a
+plain `python poly.py` starts the same way. An option you type always wins over the saved one.
+
+- `--profile NAME`: use a separate profile, e.g. one per workstation. The last one used loads
+  by default.
+- `--fresh`: ignore the saved zone and settings and start from scratch.
+
+`--control-cursor` is deliberately **not** remembered: handing over the real mouse is a
+conscious choice each run, so a tracking glitch can never take it over by surprise. For daily
+use, put the full command in a desktop shortcut.
+
+Profiles are stored in the `profiles` folder as small JSON files. The zone is saved as fractions
+of the camera picture, so it still fits if you change resolution. Replaying a video with
+`--source` never changes your profile.
 
 Run the tests with `pytest`.
 
