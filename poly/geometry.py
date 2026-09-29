@@ -12,12 +12,18 @@ import numpy as np
 Point = tuple[int, int]
 
 
-def landmark_to_pixel(x_norm: float, y_norm: float, width: int, height: int) -> Point:
-    """Convert a MediaPipe normalised (0-1) landmark position into pixel coordinates."""
-    return int(x_norm * width), int(y_norm * height)
+def landmarks_to_pixels(landmarks: list[tuple[float, float, float]], width: int,
+                        height: int) -> list[tuple[float, float, float]]:
+    """Convert normalised MediaPipe landmarks to pixel units, keeping sub-pixel
+    precision (the smoothing filter needs it).
+
+    z is scaled by the width because MediaPipe documents z as using "roughly the
+    same scale as x". That keeps 3-D distances meaningful in pixels.
+    """
+    return [(x * width, y * height, z * width) for x, y, z in landmarks]
 
 
-def distance(a: tuple[float, float], b: tuple[float, float]) -> float:
+def distance(a: tuple[float, ...], b: tuple[float, ...]) -> float:
     """Euclidean distance between two 2-D points."""
     return math.hypot(a[0] - b[0], a[1] - b[1])
 

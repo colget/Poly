@@ -11,11 +11,19 @@ Ignore input outside the zone to reduce jitter/false positives.
 
 Built with MediaPipe Hand Landmarker and OpenCV.
 
-Current state (work in progress): the app tracks your index fingertip and checks whether it is
-inside a polygon. Touchless (gesture) drawing is being built; for now drawing uses developer
-keys behind `--debug-keys`:
-'d' add vertex, 'f' close polygon (3+ points), 'r' reset. Quit with ESC/q or by closing the window.
-Planned: gesture drawing, cursor mapping, pinch-clicks, multi-finger grab, JSON profile save.
+Current state (work in progress): drawing the zone is fully touchless. Cursor control, clicking,
+grabbing the zone and saved profiles are still to come.
+
+| Mode | Gesture | Action |
+|---|---|---|
+| DRAWING | Point (index finger only) and hold still ~0.8 s | Add a point (a ring fills while you hold) |
+| DRAWING | Hold still on the first point (3+ points placed) | Close the zone -> ACTIVE |
+| DRAWING | Fist held ~1 s | Undo the last point |
+| ACTIVE | Point | Shows whether your fingertip is inside the zone |
+| ACTIVE | Fist held ~2 s | Clear the zone and draw a new one |
+
+The banner at the top always shows the current mode and what you can do. `--sound` adds a short
+beep when a gesture is recognised. Quit with ESC/q or by closing the window.
 
 ## Install & run (Windows)
 
@@ -26,12 +34,13 @@ officially supports up to 3.12.
 py -3.12 -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
-python poly.py --debug-keys
+python poly.py
 ```
 
 Options: `--camera INDEX` (try 1 or 2 if you get no image), `--model PATH` (defaults to
 `hand_landmarker.task` next to `poly.py`), `--source VIDEO_FILE` (replay a recorded clip
-instead of the webcam), `--debug-keys`.
+instead of the webcam), `--sound`, and `--debug-keys` (developer fallback: 'd' add point,
+'f' close, 'r' clear).
 
 Run the tests with `pytest`.
 

@@ -1,0 +1,252 @@
+"""State machine tests driven by synthetic hands and a simulated 30 fps clock."""
+
+import random
+
+from poly.config import DEFAULT_CONFIG
+from poly.geometry import PolygonDraft, distance
+from poly.gestures import Pose
+from poly.modes import Event, FrameResult, HoldAction, Mode, ModeMachine
+from synthetic_hands import make_hand
+
+FPS = 30
+SQUARE = [(150, 120), (450, 120), (450, 380), (150, 380)]
+
+
+class Sim:
+    """Feeds frames into a ModeMachine and records everything that happened."""
+
+    def __init__(self, machine: ModeMachine | None = None) -> None:
+        self.m = machine or ModeMachine(DEFAULT_CONFIG)
+        self.t = 0.0
+        self.events: list[Event] = []
+        self.results: list[FrameResult] = []
+
+    def _step(self, landmarks) -> FrameResult:
+        r = self.m.update(landmarks, self.t)
+        self.t += 1 / FPS
+        self.events += r.events
+        self.results.append(r)
+        return r
+
+    def hold(self, pose, at, seconds, size=80, jitter=0.0, seed=0) -> FrameResult:
+        rng = random.Random(seed)
+        r = None
+        for _ in range(round(seconds * FPS)):
+            p = (at[0] + rng.uniform(-jitter, jitter), at[1] + rng.uniform(-jitter, jitter))
+            r = self._step(make_hand(pose, p, size))
+        return r
+
+    def move(self, pose, start, end, seconds, size=80) -> FrameResult:
+        n = round(seconds * FPS)
+        r = None
+        for i in range(1, n + 1):
+            f = i / n
+            p = (start[0] + (end[0] - start[0]) * f, start[1] + (end[1] - start[1]) * f)
+            r = self._step(make_hand(pose, p, size))
+        return r
+
+    def no_hand(self, frames) -> FrameResult:
+        r = None
+        for _ in range(frames):
+            r = self._step(None)
+        return r
+
+    def draw(self, corners, dwell_s=1.5):
+        """Point-and-hold at each corner, moving between them."""
+        prev = corners[0]
+        for c in corners:
+            if c != prev:
+                self.move(Pose.POINT, prev, c, 0.4)
+            self.hold(Pose.POINT, c, dwell_s)
+            prev = c
+
+
+def test_starts_in_drawing_without_a_polygon():
+    assert ModeMachine(DEFAULT_CONFIG).mode is Mode.DRAWING
+
+
+def test_starts_active_with_a_closed_polygon():
+    poly = PolygonDraft(vertices=list(SQUARE), closed=True)
+    assert ModeMachine(DEFAULT_CONFIG, poly).mode is Mode.ACTIVE
+
+
+def test_full_draw_close_redraw_cycle():
+    sim = Sim()
+    sim.draw(SQUARE)
+    assert sim.events == [Event.VERTEX_ADDED] * 4
+    assert sim.m.mode is Mode.DRAWING
+    for got, want in zip(sim.m.polygon.vertices, SQUARE):
+        assert distance(got, want) < 3  # the filter settles on the corner
+
+    # Go back to the first corner and hold: closes instead of adding a 5th point.
+    sim.move(Pose.POINT, SQUARE[-1], SQUARE[0], 0.4)
+    sim.hold(Pose.POINT, SQUARE[0], 1.5)
+    assert sim.events[-1] is Event.POLYGON_CLOSED
+    assert sim.m.mode is Mode.ACTIVE
+    assert len(sim.m.polygon.vertices) == 4
+
+    # ACTIVE: inside/outside follows the fingertip.
+    assert sim.move(Pose.POINT, SQUARE[0], (300, 250), 0.5).inside
+    assert not sim.move(Pose.POINT, (300, 250), (580, 250), 0.5).inside
+
+    # Fist held 2 s clears and returns to DRAWING.
+    sim.hold(Pose.FIST, (300, 250), 2.5)
+    assert sim.events[-1] is Event.POLYGON_CLEARED
+    assert sim.m.mode is Mode.DRAWING
+    assert sim.m.polygon.vertices == [] and not sim.m.polygon.closed
+
+    # ...and a second polygon can be drawn straight away.
+    sim.draw(SQUARE[:3])
+    assert len(sim.m.polygon.vertices) == 3
+
+
+def test_holding_still_for_long_adds_one_vertex():
+    sim = Sim()
+    sim.hold(Pose.POINT, (200, 200), 5.0)
+    assert sim.events == [Event.VERTEX_ADDED]
+
+
+def test_dwell_shows_progress_before_firing():
+    sim = Sim()
+    r = sim.hold(Pose.POINT, (200, 200), 0.5)
+    assert 0 < r.dwell_progress < 1
+    assert sim.m.polygon.vertices == []
+
+
+def test_moving_finger_never_adds_vertices():
+    sim = Sim()
+    sim.move(Pose.POINT, (100, 100), (500, 400), 3.0)
+    assert sim.events == []
+
+
+def test_tremor_is_tolerated():
+    sim = Sim()
+    sim.hold(Pose.POINT, (200, 200), 1.5, jitter=6, seed=3)
+    assert sim.events == [Event.VERTEX_ADDED]
+
+
+def test_small_far_away_hand_with_proportional_tremor():
+    # Hand 30 px big (far from camera): the dwell radius shrinks with it.
+    sim = Sim()
+    sim.hold(Pose.POINT, (200, 200), 1.5, size=30, jitter=2, seed=4)
+    assert sim.events == [Event.VERTEX_ADDED]
+
+
+def test_only_pointing_drops_vertices():
+    for pose in (Pose.OPEN_PALM, Pose.OTHER, Pose.FIST):
+        sim = Sim()
+        sim.hold(pose, (200, 200), 3.0)
+        assert Event.VERTEX_ADDED not in sim.events, pose
+
+
+def test_cannot_close_with_fewer_than_three_points():
+    sim = Sim()
+    sim.draw(SQUARE[:2])
+    sim.move(Pose.POINT, SQUARE[1], SQUARE[0], 0.4)
+    r = sim.hold(Pose.POINT, SQUARE[0], 2.0)
+    assert not r.near_first_vertex
+    assert sim.m.mode is Mode.DRAWING
+
+
+def test_no_vertex_stacked_on_an_earlier_vertex():
+    sim = Sim()
+    sim.draw(SQUARE[:2])
+    sim.move(Pose.POINT, SQUARE[1], SQUARE[0], 0.4)
+    sim.hold(Pose.POINT, SQUARE[0], 2.0)
+    assert len(sim.m.polygon.vertices) == 2
+
+
+def test_near_first_vertex_is_reported_for_the_highlight():
+    sim = Sim()
+    sim.draw(SQUARE[:3])
+    r = sim.move(Pose.POINT, SQUARE[2], (SQUARE[0][0] + 10, SQUARE[0][1]), 0.6)
+    assert r.near_first_vertex
+
+
+def test_fist_undoes_one_vertex_per_hold():
+    sim = Sim()
+    sim.draw(SQUARE[:3])
+    r = sim.hold(Pose.FIST, SQUARE[2], 0.5)
+    assert r.hold_action is HoldAction.UNDO and 0 < r.hold_progress < 1
+    sim.hold(Pose.FIST, SQUARE[2], 2.5)  # keep holding: still just one undo
+    assert sim.events.count(Event.VERTEX_UNDONE) == 1
+    assert len(sim.m.polygon.vertices) == 2
+
+    sim.hold(Pose.OTHER, SQUARE[2], 0.3)  # release...
+    sim.hold(Pose.FIST, SQUARE[2], 1.3)  # ...and fist again: second undo
+    assert len(sim.m.polygon.vertices) == 1
+
+
+def test_no_undo_ring_when_nothing_to_undo():
+    sim = Sim()
+    r = sim.hold(Pose.FIST, (200, 200), 1.5)
+    assert r.hold_action is None and sim.events == []
+
+
+def test_short_fist_in_active_does_not_clear():
+    poly = PolygonDraft(vertices=list(SQUARE), closed=True)
+    sim = Sim(ModeMachine(DEFAULT_CONFIG, poly))
+    r = sim.hold(Pose.FIST, (300, 250), 1.5)  # longer than undo, shorter than clear
+    assert r.hold_action is HoldAction.CLEAR and r.hold_progress > 0.5
+    sim.hold(Pose.POINT, (300, 250), 0.5)
+    assert sim.m.mode is Mode.ACTIVE and sim.events == []
+
+
+def test_pointing_in_active_does_not_add_vertices():
+    poly = PolygonDraft(vertices=list(SQUARE), closed=True)
+    sim = Sim(ModeMachine(DEFAULT_CONFIG, poly))
+    sim.hold(Pose.POINT, (300, 250), 3.0)
+    assert sim.events == [] and len(sim.m.polygon.vertices) == 4
+
+
+def test_single_frame_misclassification_does_not_break_dwell():
+    sim = Sim()
+    sim.hold(Pose.POINT, (200, 200), 0.5)
+    sim.hold(Pose.FIST, (200, 200), 1 / FPS)  # one bad frame
+    sim.hold(Pose.POINT, (200, 200), 0.4)
+    assert sim.events == [Event.VERTEX_ADDED]
+    assert sim.t < 1.0  # finished on the original schedule, not restarted
+
+
+def test_brief_hand_dropout_keeps_the_dwell():
+    sim = Sim()
+    sim.hold(Pose.POINT, (200, 200), 0.5)
+    r = sim.no_hand(3)
+    assert r.hand_visible and r.tip is not None and r.dwell_progress > 0
+    sim.hold(Pose.POINT, (200, 200), 0.4)
+    assert sim.events == [Event.VERTEX_ADDED]
+
+
+def test_long_hand_loss_cancels_the_dwell():
+    sim = Sim()
+    sim.hold(Pose.POINT, (200, 200), 0.6)
+    r = sim.no_hand(20)
+    assert not r.hand_visible and r.tip is None and r.dwell_progress == 0
+    sim.hold(Pose.POINT, (200, 200), 0.4)
+    assert sim.events == []  # had to start again
+
+
+def test_hand_loss_keeps_mode_and_polygon():
+    poly = PolygonDraft(vertices=list(SQUARE), closed=True)
+    sim = Sim(ModeMachine(DEFAULT_CONFIG, poly))
+    sim.no_hand(100)
+    assert sim.m.mode is Mode.ACTIVE and len(sim.m.polygon.vertices) == 4
+
+
+def test_filter_restarts_after_hand_loss():
+    # Reappearing elsewhere must not drag the dot across from the old position.
+    sim = Sim()
+    sim.hold(Pose.POINT, (100, 100), 0.5)
+    sim.no_hand(20)
+    r = sim.hold(Pose.POINT, (500, 400), 1 / FPS)
+    assert r.tip == (500, 400)
+
+
+def test_debug_actions():
+    m = ModeMachine(DEFAULT_CONFIG)
+    for v in SQUARE:
+        assert m.add_vertex(v)
+    assert m.close_polygon() and m.mode is Mode.ACTIVE
+    assert not m.add_vertex((1, 1))  # not while ACTIVE
+    m.clear()
+    assert m.mode is Mode.DRAWING and m.polygon.vertices == []

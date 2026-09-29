@@ -1,13 +1,12 @@
 import pytest
 
-from poly.geometry import PolygonDraft, distance, landmark_to_pixel, point_in_polygon
+from poly.geometry import PolygonDraft, distance, landmarks_to_pixels, point_in_polygon
 
 SQUARE = [(0, 0), (100, 0), (100, 100), (0, 100)]
 
 
-def test_landmark_to_pixel_scales_and_truncates():
-    assert landmark_to_pixel(0.5, 0.25, 640, 480) == (320, 120)
-    assert landmark_to_pixel(0.999, 0.999, 640, 480) == (639, 479)
+def test_landmarks_to_pixels_scales_z_by_width():
+    assert landmarks_to_pixels([(0.5, 0.25, -0.1)], 640, 480) == [(320.0, 120.0, -64.0)]
 
 
 def test_distance():

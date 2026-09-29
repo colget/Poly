@@ -11,8 +11,9 @@ from pathlib import Path
 import cv2
 
 from poly import feedback
-from poly.config import DEFAULT_CONFIG, Config
-from poly.geometry import Point, PolygonDraft, landmark_to_pixel
+from poly.config import DEFAULT_CONFIG
+from poly.geometry import landmarks_to_pixels
+from poly.modes import ModeMachine
 from poly.tracker import HandTracker
 
 # hand_landmarker.task sits in the repo root, one level above this package.
@@ -24,7 +25,6 @@ MODEL_URL = (
     "hand_landmarker/float16/latest/hand_landmarker.task"
 )
 WINDOW_NAME = "Poly - Finger Tracking (ESC/q to quit)"
-INDEX_FINGER_TIP = 8  # MediaPipe landmark number
 QUIT_KEYS = (27, ord("q"))  # ESC, q
 FALLBACK_FPS = 30.0  # used when a video file doesn't report its frame rate
 
@@ -39,23 +39,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--source", type=Path, default=None, metavar="VIDEO_FILE",
                         help="replay a recorded video instead of the webcam")
     parser.add_argument("--debug-keys", action="store_true",
-                        help="developer fallback: d = add vertex, f = close, r = reset")
+                        help="developer fallback: d = add vertex, f = close, r = clear")
+    parser.add_argument("--sound", action="store_true",
+                        help="beep when a gesture is recognised")
     return parser.parse_args(argv)
 
 
-def handle_debug_key(key: int, draft: PolygonDraft, fingertip: Point | None,
-                     config: Config) -> str | None:
-    """Apply a developer debug key to the polygon. Returns a log message, or None
-    if the key did nothing."""
+def handle_debug_key(key: int, machine: ModeMachine,
+                     fingertip: tuple[float, float] | None) -> str | None:
+    """Apply a developer debug key. Returns a log message, or None if the key did
+    nothing. Real users never need these - every action is also a gesture."""
     if key == ord("d") and fingertip is not None:
-        if draft.add_vertex(fingertip, config.min_vertex_distance_px):
-            return f"Added point {len(draft.vertices)}: {fingertip}"
+        point = (int(round(fingertip[0])), int(round(fingertip[1])))
+        if machine.add_vertex(point):
+            return f"[debug] Added point {len(machine.polygon.vertices)}: {point}"
     elif key == ord("f"):
-        if draft.close(config.min_polygon_vertices):
-            return "Polygon finished!"
+        if machine.close_polygon():
+            return "[debug] Polygon closed."
     elif key == ord("r"):
-        draft.reset()
-        return "Reset."
+        machine.clear()
+        return "[debug] Cleared."
     return None
 
 
@@ -95,15 +98,18 @@ def main(argv: list[str] | None = None) -> None:
     # Video file: wait one frame period so playback runs at roughly real speed.
     key_wait_ms = max(1, int(1000 / fps)) if replaying else 1
 
-    draft = PolygonDraft()
+    machine = ModeMachine(config)
+    flash = feedback.Flash(config.flash_message_s)
+    sounds = feedback.Sounds(args.sound)
     tracker = None
     try:
         tracker = HandTracker(args.model, config)
         print("\n=== Poly - Polygon Tracer ===")
+        print("Draw: point with your index finger and hold still to drop a point.")
+        print("      Hold still on the first point to close the zone. Fist 1 s = undo.")
+        print("Zone: fist held 2 s = clear and redraw.")
         if args.debug_keys:
-            print("Debug keys: 'd' add vertex, 'f' close polygon (3+ points), 'r' reset")
-        else:
-            print("Touchless drawing is not implemented yet; run with --debug-keys to draw.")
+            print("Debug keys: 'd' add vertex, 'f' close polygon (3+ points), 'r' clear")
         print("ESC or 'q' (or close the window) to quit.\n")
 
         frame_index = 0
@@ -126,19 +132,18 @@ def main(argv: list[str] | None = None) -> None:
             frame_index += 1
 
             landmarks = tracker.detect(frame, now_s)
-            fingertip = None
             if landmarks is not None:
-                tip = landmarks[INDEX_FINGER_TIP]
-                fingertip = landmark_to_pixel(tip[0], tip[1], w, h)
-            inside = fingertip is not None and draft.contains(fingertip)
+                landmarks = landmarks_to_pixels(landmarks, w, h)
+            result = machine.update(landmarks, now_s)
+            for event in result.events:
+                print(event.value)
+                flash.show(event.value, now_s)
+                sounds.play(event)
 
-            overlay = frame.copy()
-            if fingertip is not None:
-                feedback.draw_fingertip(overlay, fingertip)
-            feedback.draw_polygon(overlay, draft.vertices, draft.closed)
-            text, colour = feedback.status_line(draft.closed, inside, args.debug_keys)
-            feedback.draw_status(overlay, text, colour, len(draft.vertices))
-            cv2.imshow(WINDOW_NAME, overlay)
+            feedback.render(frame, result, machine.polygon.vertices, machine.polygon.closed,
+                            config.min_polygon_vertices, args.debug_keys)
+            flash.draw(frame, now_s)
+            cv2.imshow(WINDOW_NAME, frame)
 
             key = cv2.waitKey(key_wait_ms) & 0xFF
             if key in QUIT_KEYS:
@@ -147,7 +152,7 @@ def main(argv: list[str] | None = None) -> None:
             if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
                 break
             if args.debug_keys:
-                message = handle_debug_key(key, draft, fingertip, config)
+                message = handle_debug_key(key, machine, result.tip)
                 if message:
                     print(message)
     finally:
