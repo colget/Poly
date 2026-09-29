@@ -9,7 +9,8 @@ code here - feed it synthetic landmarks and fake times in tests.
     GRAB    --hand closes / hand lost----------------> ACTIVE (zone stays where dropped)
 
 The cursor moves only in ACTIVE, while pointing inside the zone (see
-should_move_cursor). Clicking (pinch) arrives in a later phase.
+should_move_cursor). In ACTIVE a pinch (thumb tip to index tip) is one click; the
+pointer freezes while the thumb closes in so the click lands where you aimed.
 """
 
 from __future__ import annotations
@@ -23,10 +24,12 @@ from poly.filters import PointFilter
 from poly.geometry import Point, PolygonDraft, distance, quick_zone, translate_within
 from poly.gestures import (
     INDEX_TIP,
+    THUMB_TIP,
     Debouncer,
     DwellDetector,
     HoldTimer,
     Landmark,
+    PinchDetector,
     Pose,
     classify_pose,
     hand_size,
@@ -54,6 +57,7 @@ class Event(Enum):
     POLYGON_CLEARED = "Zone cleared - draw a new one"
     ZONE_GRABBED = "Zone picked up"
     ZONE_DROPPED = "Zone placed"
+    CLICK = "Click"
 
 
 class HoldAction(Enum):
@@ -79,6 +83,8 @@ class FrameResult:
     hold_progress: float = 0.0        # 0..1
     close_target: Point | None = None  # vertex under the finger; dwelling finishes the zone
     inside: bool = False              # fingertip inside the closed polygon
+    thumb_tip: tuple[float, float] | None = None
+    cursor_frozen: bool = False       # thumb closing in for a pinch: hold the pointer still
     events: list[Event] = field(default_factory=list)
 
 
@@ -100,6 +106,11 @@ class ModeMachine:
         self._clear_hold = HoldTimer(config.clear_hold_s)
         self._quick_hold = HoldTimer(config.quick_zone_hold_s)
         self._grab_hold = HoldTimer(config.grab_hold_s)
+        self._pinch = PinchDetector(config.pinch_press_gap, config.pinch_release_gap,
+                                    config.pinch_min_index_ratio)
+        # Was the fingertip inside the zone when the pointer froze for this pinch?
+        # Clicks only count if so - a pinch made outside the zone is ignored.
+        self._pinch_armed = False
         # Where the palm and the zone were when the grab started. The zone is always
         # placed relative to these (not nudged frame by frame), so rounding errors
         # can't accumulate and make the zone creep.
@@ -120,7 +131,11 @@ class ModeMachine:
             return self._hand_missing()
         self._lost_frames = 0
 
-        pose = self._pose.update(classify_pose(landmarks, self.config.finger_extended_ratio))
+        raw_pose = classify_pose(landmarks, self.config.finger_extended_ratio)
+        if self._pinch.update(landmarks):
+            raw_pose = Pose.PINCH  # a pinch overrides the finger-shape pose
+        previous_pose = self._pose.value
+        pose = self._pose.update(raw_pose)
         raw_tip = (landmarks[INDEX_TIP][0], landmarks[INDEX_TIP][1])
         tip = self._tip_filter(raw_tip, now_s)
         palm = self._palm_filter(palm_centre(landmarks), now_s)
@@ -132,7 +147,10 @@ class ModeMachine:
             result = self._update_active(pose, tip, palm, now_s)
         else:
             result = self._update_grab(pose, tip, palm)
-        result = replace(result, hand_size=size)
+        if result.mode is Mode.ACTIVE:
+            result = self._pinch_click(result, previous_pose, tip)
+        thumb = (landmarks[THUMB_TIP][0], landmarks[THUMB_TIP][1])
+        result = replace(result, hand_size=size, thumb_tip=thumb)
         self._last = result
         return result
 
@@ -207,6 +225,25 @@ class ModeMachine:
             hold_action=hold_action, hold_progress=hold_progress,
             inside=self.polygon.contains(tip), events=events,
         )
+
+    def _pinch_click(self, result: FrameResult, previous_pose: Pose,
+                     tip: tuple[float, float]) -> FrameResult:
+        """Freeze the pointer while a pinch is near, and click once per pinch.
+
+        One pinch = one click because the click fires only on the frame the
+        (debounced) pose *becomes* PINCH; holding the pinch does nothing more.
+        """
+        frozen = self._pinch.near
+        if not frozen:
+            self._pinch_armed = False
+        elif not self._pinch_armed and result.pose is Pose.POINT:
+            # The pointer freezes now: remember whether we were aiming inside the zone.
+            self._pinch_armed = self.polygon.contains(tip)
+        events = list(result.events)
+        if (result.pose is Pose.PINCH and previous_pose is not Pose.PINCH
+                and self._pinch_armed):
+            events.append(Event.CLICK)
+        return replace(result, cursor_frozen=frozen, events=events)
 
     def _update_grab(self, pose: Pose, tip: tuple[float, float],
                      palm: tuple[float, float]) -> FrameResult:
@@ -307,17 +344,19 @@ class ModeMachine:
         self._pose.reset(Pose.NONE)
         self._tip_filter.reset()
         self._palm_filter.reset()
+        self._pinch.reset()
+        self._pinch_armed = False
 
 
 def should_move_cursor(result: FrameResult) -> bool:
     """The cursor follows the fingertip only when pointing inside an ACTIVE zone.
 
     Everything else leaves it alone: outside the zone (so you can work normally),
-    any other hand shape (so a fist or open palm never drags the pointer), and
-    while moving the zone or when no hand is seen.
+    any other hand shape (so a fist or open palm never drags the pointer), while
+    the thumb closes in for a click, while moving the zone or when no hand is seen.
     """
     return (result.mode is Mode.ACTIVE and result.hand_visible and result.tip is not None
-            and result.pose is Pose.POINT and result.inside)
+            and result.pose is Pose.POINT and result.inside and not result.cursor_frozen)
 
 
 def _active_hold(*holds: tuple[HoldAction, HoldTimer]) -> tuple[HoldAction | None, float]:

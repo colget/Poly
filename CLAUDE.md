@@ -68,7 +68,10 @@ profiles. **Drawing currently depends on the keyboard — this is the main thing
 - Finger "extended" is decided from fingertip-to-wrist vs knuckle-to-wrist distance
   ratios, not y-coordinates alone (y-only breaks when the hand is rotated).
 - Pinch uses hysteresis (separate press and release thresholds) + debounce, so one
-  pinch = one click.
+  pinch = one click. Gap = thumb tip→index tip in hand sizes. The band between the
+  press and release gaps freezes the pointer ("cursor freezes at pinch start"), and a
+  click only counts if the fingertip was inside the zone when it froze. A pinch also
+  requires the index finger to be reaching out, so a fist is never a click.
 - In DRAWING mode, pinch is ignored and open palm only counts (as quick zone) while no
   points are placed. Why: fewer active gestures in a mode = fewer false triggers.
 - After a gesture switches mode, the hand is usually still in that shape: the next

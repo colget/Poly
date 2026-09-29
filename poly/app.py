@@ -14,7 +14,7 @@ from poly import feedback
 from poly.config import DEFAULT_CONFIG
 from poly.cursor import detect_screen_size, make_cursor, parse_screen_size
 from poly.geometry import ZoneMapper, landmarks_to_pixels
-from poly.modes import ModeMachine, should_move_cursor
+from poly.modes import Event, ModeMachine, should_move_cursor
 from poly.tracker import HandTracker
 
 # hand_landmarker.task sits in the repo root, one level above this package.
@@ -118,7 +118,8 @@ def main(argv: list[str] | None = None) -> None:
         print("      Hold still on an earlier point to finish. Fist 1 s = undo.")
         print("      Or hold an open palm 1.5 s for a ready-made rectangle zone.")
         print("Zone: open palm = pick the zone up and move it; close your hand to drop it.")
-        print("      Point inside the zone to move the pointer. Fist held 2 s = clear and redraw.")
+        print("      Point inside the zone to move the pointer; pinch thumb + index to click.")
+        print("      Fist held 2 s = clear and redraw.")
         if cursor.controls_mouse:
             print(f"Mouse control ON (screen {screen_size[0]}x{screen_size[1]}). "
                   "Move your finger out of the zone to let go of the mouse.")
@@ -156,6 +157,8 @@ def main(argv: list[str] | None = None) -> None:
                 print(event.value)
                 flash.show(event.value, now_s)
                 sounds.play(event)
+                if event is Event.CLICK:
+                    cursor.click()
 
             # Rebuild the zone -> screen mapping whenever the zone changes shape or
             # position (closed, quick zone, moved).

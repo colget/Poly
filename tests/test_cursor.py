@@ -36,8 +36,12 @@ def test_system_cursor_moves_pointer_only_when_position_changes(monkeypatch):
         def position(self, value):
             moves.append(value)
 
+        def click(self, button):
+            moves.append(("click", button))
+
     fake = types.ModuleType("pynput.mouse")
     fake.Controller = FakeController
+    fake.Button = types.SimpleNamespace(left="left")
     monkeypatch.setitem(sys.modules, "pynput", types.ModuleType("pynput"))
     monkeypatch.setitem(sys.modules, "pynput.mouse", fake)
 
@@ -46,3 +50,11 @@ def test_system_cursor_moves_pointer_only_when_position_changes(monkeypatch):
     for pos in [(1, 1), (1, 1), (2, 3)]:
         cursor.move_to(pos)
     assert moves == [(1, 1), (2, 3)]
+    cursor.click()
+    assert moves[-1] == ("click", "left") and cursor.clicks == 1
+
+
+def test_preview_counts_clicks():
+    cursor = make_cursor(False)
+    cursor.click()
+    assert cursor.clicks == 1

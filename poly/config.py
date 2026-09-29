@@ -97,6 +97,18 @@ class Config:
     # instant) stops a hand that opens briefly while working from moving the zone.
     grab_hold_s: float = 0.5
 
+    # --- Pinch click (ACTIVE) ------------------------------------------------------------
+    # Thumb tip -> index tip gap, in hand sizes. Touching fingertips measure ~0.1-0.2;
+    # a relaxed pointing hand ~0.6+. Hysteresis: close below `press` to click, open
+    # beyond `release` to be ready for the next click. Between the two the pointer
+    # is frozen so the click lands where you aimed.
+    pinch_press_gap: float = 0.25
+    pinch_release_gap: float = 0.45
+    # The index finger must still be reaching out (tip -> wrist at least this many
+    # times knuckle -> wrist) for a pinch to count, so a fist with the thumb over the
+    # index finger is never taken for a click.
+    pinch_min_index_ratio: float = 1.1
+
     # --- Cursor mapping ----------------------------------------------------------------
     # This fraction of the zone's width/height on each side maps onto the screen
     # edge, so edges and corners are easy to reach without leaving the zone.

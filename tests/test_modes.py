@@ -36,12 +36,12 @@ class Sim:
         self.results.append(r)
         return r
 
-    def hold(self, pose, at, seconds, size=80, jitter=0.0, seed=0) -> FrameResult:
+    def hold(self, pose, at, seconds, size=80, jitter=0.0, seed=0, thumb_gap=None) -> FrameResult:
         rng = random.Random(seed)
         r = None
         for _ in range(round(seconds * FPS)):
             p = (at[0] + rng.uniform(-jitter, jitter), at[1] + rng.uniform(-jitter, jitter))
-            r = self._step(make_hand(pose, p, size))
+            r = self._step(make_hand(pose, p, size, thumb_gap=thumb_gap))
         return r
 
     def move(self, pose, start, end, seconds, size=80) -> FrameResult:
@@ -413,3 +413,60 @@ def test_cursor_never_moves_while_drawing():
     sim.draw(SQUARE[:3])
     r = sim.hold(Pose.POINT, (300, 250), 0.3)
     assert r.mode is Mode.DRAWING and not should_move_cursor(r)
+
+
+# ---------------------------------------------------------------- pinch click
+
+
+def pinch(sim, at, seconds=0.3):
+    """Thumb closes in (pointer freezes), touches (click), then opens again."""
+    sim.hold(Pose.POINT, at, 0.1, thumb_gap=0.35)
+    sim.hold(Pose.PINCH, at, seconds)
+    sim.hold(Pose.POINT, at, 0.1, thumb_gap=0.35)
+    return sim.hold(Pose.POINT, at, 0.2)
+
+
+def test_one_pinch_is_one_click():
+    sim = active_sim()
+    sim.hold(Pose.POINT, (300, 250), 0.3)
+    pinch(sim, (300, 250))
+    assert sim.events == [Event.CLICK]
+
+
+def test_holding_a_pinch_does_not_repeat_or_clear():
+    sim = active_sim()
+    sim.hold(Pose.POINT, (300, 250), 0.3)
+    pinch(sim, (300, 250), seconds=3.0)  # longer than the 2 s clear hold
+    assert sim.events == [Event.CLICK] and sim.m.mode is Mode.ACTIVE
+
+
+def test_quick_double_pinch_gives_two_clicks():
+    sim = active_sim()
+    sim.hold(Pose.POINT, (300, 250), 0.3)
+    pinch(sim, (300, 250), seconds=0.15)
+    pinch(sim, (300, 250), seconds=0.15)
+    assert sim.events == [Event.CLICK, Event.CLICK]
+    assert sim.t < 1.5  # fast enough for the OS to see a double-click
+
+
+def test_pointer_freezes_while_thumb_closes_in():
+    sim = active_sim()
+    assert should_move_cursor(sim.hold(Pose.POINT, (300, 250), 0.3))
+    r = sim.hold(Pose.POINT, (300, 250), 0.1, thumb_gap=0.35)
+    assert r.cursor_frozen and not should_move_cursor(r)
+    r = sim.hold(Pose.POINT, (300, 250), 0.3)  # thumb away again
+    assert not r.cursor_frozen and should_move_cursor(r)
+
+
+def test_pinch_outside_the_zone_does_not_click():
+    sim = active_sim()
+    sim.hold(Pose.POINT, (600, 250), 0.3)
+    pinch(sim, (600, 250))
+    assert sim.events == []
+
+
+def test_pinch_while_drawing_does_nothing():
+    sim = Sim()
+    sim.hold(Pose.POINT, (300, 250), 0.3)
+    pinch(sim, (300, 250))
+    assert Event.CLICK not in sim.events and sim.m.polygon.vertices == []

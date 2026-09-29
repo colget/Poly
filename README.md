@@ -12,7 +12,7 @@ Ignore input outside the zone to reduce jitter/false positives.
 Built with MediaPipe Hand Landmarker and OpenCV.
 
 Current state (work in progress): creating, moving and clearing the zone and moving the mouse
-pointer are fully touchless. Clicking and saved profiles are still to come.
+pointer and clicking are fully touchless. Saved profiles are still to come.
 
 | Mode | Gesture | Action |
 |---|---|---|
@@ -22,6 +22,7 @@ pointer are fully touchless. Clicking and saved profiles are still to come.
 | DRAWING | Open palm held ~1.5 s (no points yet) | Quick zone: a ready-made rectangle around your hand -> ACTIVE |
 | ACTIVE | Point inside the zone | Moves the mouse pointer: the zone is stretched over the whole screen |
 | ACTIVE | Point outside the zone | Nothing - the pointer stays put, so you can let go of the mouse |
+| ACTIVE | Pinch thumb tip to index tip (inside the zone) | Left click. The pointer freezes as your thumb closes in, so the click lands where you aimed. Two quick pinches = double-click |
 | ACTIVE | Open palm held ~0.5 s | Pick the zone up; it follows your hand. Close your hand to drop it |
 | ACTIVE | Fist held ~2 s | Clear the zone and draw a new one |
 

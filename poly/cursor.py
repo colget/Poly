@@ -57,10 +57,15 @@ class PreviewCursor:
 
     def __init__(self) -> None:
         self.position: tuple[int, int] | None = None
+        self.clicks = 0
 
     def move_to(self, position: tuple[int, int]) -> None:
         """Record `position` as the pointer position."""
         self.position = position
+
+    def click(self) -> None:
+        """Record a left click at the current position."""
+        self.clicks += 1
 
 
 class SystemCursor(PreviewCursor):
@@ -70,15 +75,21 @@ class SystemCursor(PreviewCursor):
 
     def __init__(self) -> None:
         super().__init__()
-        from pynput.mouse import Controller  # imported here so tests never need it
+        from pynput.mouse import Button, Controller  # imported here so tests never need it
 
         self._mouse = Controller()
+        self._left = Button.left
 
     def move_to(self, position: tuple[int, int]) -> None:
         """Move the real pointer, skipping calls that wouldn't change anything."""
         if position != self.position:
             self._mouse.position = position
         super().move_to(position)
+
+    def click(self) -> None:
+        """Left click wherever the real pointer is."""
+        self._mouse.click(self._left)
+        super().click()
 
 
 def make_cursor(control_mouse: bool) -> PreviewCursor:

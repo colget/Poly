@@ -16,10 +16,12 @@ Landmark = Sequence[float]
 
 # MediaPipe landmark numbers.
 WRIST = 0
+THUMB_TIP = 4
 MIDDLE_MCP = 9
 INDEX_TIP = 8
-# (knuckle, tip) for the four fingers. The thumb is left out: people point with
-# the thumb either tucked or sticking out, and it's needed only for pinch later.
+# (knuckle, tip) for the four fingers. The thumb is left out of pose shapes:
+# people point with the thumb either tucked or sticking out. It only matters for
+# pinch, which is detected separately (see PinchDetector).
 INDEX = (5, 8)
 MIDDLE = (9, 12)
 RING = (13, 16)
@@ -33,6 +35,7 @@ class Pose(Enum):
     POINT = "point"        # index extended, other fingers curled
     FIST = "fist"          # all four fingers curled
     OPEN_PALM = "palm"     # all four fingers extended
+    PINCH = "pinch"        # thumb tip touching index tip (a click)
     OTHER = "other"        # anything else (ignored)
 
 
@@ -92,6 +95,58 @@ def classify_pose(landmarks: Sequence[Landmark] | None, extended_ratio: float) -
     if index and all(others):
         return Pose.OPEN_PALM
     return Pose.OTHER
+
+
+def pinch_gap(landmarks: Sequence[Landmark]) -> float:
+    """Thumb tip -> index tip distance, in hand sizes (so it works at any distance)."""
+    size = hand_size(landmarks)
+    return _dist3(landmarks[THUMB_TIP], landmarks[INDEX_TIP]) / size if size > 0 else math.inf
+
+
+def index_reaching(landmarks: Sequence[Landmark], min_ratio: float) -> bool:
+    """True unless the index fingertip is curled into the palm.
+
+    Why: in a fist the thumb wraps over the curled index finger, so thumb tip and
+    index tip can be close together. A real pinch keeps the index finger reaching
+    out to meet the thumb, so this tells the two apart.
+    """
+    return finger_extended(landmarks, INDEX, min_ratio)
+
+
+class PinchDetector:
+    """Thumb-to-index pinch with hysteresis.
+
+    Why hysteresis: with a single threshold, a gap hovering right at it flickers
+    pressed/released every frame and one pinch becomes a burst of clicks. Instead
+    the gap must close below `press_gap` to press and open beyond the (larger)
+    `release_gap` to release. Everything in between keeps the previous state.
+
+    The in-between band has a second use: `near` is True there, which the app
+    uses to freeze the pointer while the thumb closes in - otherwise the index
+    tip bending towards the thumb would drag the pointer off the target.
+    """
+
+    def __init__(self, press_gap: float, release_gap: float, min_index_ratio: float) -> None:
+        self.press_gap = press_gap
+        self.release_gap = release_gap
+        self.min_index_ratio = min_index_ratio
+        self.reset()
+
+    def reset(self) -> None:
+        """Forget the current state (e.g. after the hand was lost)."""
+        self.pressed = False
+        self.near = False
+
+    def update(self, landmarks: Sequence[Landmark]) -> bool:
+        """Feed one frame; returns whether the pinch is currently pressed."""
+        gap = pinch_gap(landmarks)
+        reaching = index_reaching(landmarks, self.min_index_ratio)
+        if self.pressed:
+            self.pressed = gap < self.release_gap
+        else:
+            self.pressed = reaching and gap < self.press_gap
+        self.near = self.pressed or (reaching and gap < self.release_gap)
+        return self.pressed
 
 
 T = TypeVar("T")

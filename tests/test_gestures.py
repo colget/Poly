@@ -2,7 +2,8 @@ import pytest
 
 from poly.config import DEFAULT_CONFIG
 from poly.gestures import (
-    Debouncer, DwellDetector, HoldTimer, Pose, classify_pose, hand_size, palm_centre,
+    Debouncer, DwellDetector, HoldTimer, PinchDetector, Pose, classify_pose, hand_size,
+    palm_centre, pinch_gap,
 )
 from synthetic_hands import make_hand
 
@@ -100,3 +101,39 @@ def test_hold_timer_blocked_until_release():
     assert not any(hold.update(True, t / 30) for t in range(60))  # held 2 s: nothing
     hold.update(False, 2.0)
     assert any(hold.update(True, 2.0 + t / 30) for t in range(20))
+
+
+def pinch_detector():
+    cfg = DEFAULT_CONFIG
+    return PinchDetector(cfg.pinch_press_gap, cfg.pinch_release_gap, cfg.pinch_min_index_ratio)
+
+
+@pytest.mark.parametrize("rotation", [0, 90, -45])
+@pytest.mark.parametrize("size", [30, 80, 200])
+def test_pinch_detected_at_any_rotation_and_size(rotation, size):
+    hand = make_hand(Pose.PINCH, size=size, rotation_deg=rotation)
+    assert pinch_gap(hand) < DEFAULT_CONFIG.pinch_press_gap
+    assert pinch_detector().update(hand)
+
+
+def test_pinch_hysteresis():
+    p = pinch_detector()
+    states = []
+    for gap in [0.6, 0.35, 0.2, 0.3, 0.4, 0.5, 0.35, 0.2]:
+        states.append((p.update(make_hand(Pose.POINT, thumb_gap=gap)), p.near))
+    assert states == [
+        (False, False),  # thumb far away
+        (False, True),   # closing in: not a click yet, but freeze the pointer
+        (True, True),    # touching: pressed
+        (True, True),    # opening a little: still pressed (no flicker)
+        (True, True),
+        (False, False),  # opened past the release gap
+        (False, True),
+        (True, True),    # second pinch
+    ]
+
+
+def test_fist_with_thumb_over_index_is_not_a_pinch():
+    fist = make_hand(Pose.FIST, thumb_gap=0.1)
+    p = pinch_detector()
+    assert not p.update(fist) and not p.near

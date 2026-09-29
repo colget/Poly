@@ -27,6 +27,7 @@ GREEN = (0, 220, 0)
 ORANGE = (0, 130, 255)
 RED = (40, 40, 230)
 CYAN = (255, 220, 0)
+MAGENTA = (220, 60, 220)
 
 MODE_COLOURS = {Mode.DRAWING: AMBER, Mode.ACTIVE: GREEN, Mode.GRAB: CYAN}
 HOLD_COLOURS = {
@@ -90,6 +91,15 @@ def draw_fingertip(image: np.ndarray, tip: tuple[float, float], colour: tuple[in
     cv2.circle(image, c, 10, WHITE, 2)
 
 
+def draw_pinch(image: np.ndarray, tip: tuple[float, float], thumb: tuple[float, float],
+               pressed: bool) -> None:
+    """Line from thumb tip to index tip while a pinch is near: thin while closing
+    in (pointer frozen), thick and green once it clicks."""
+    colour, thickness = (GREEN, 4) if pressed else (MAGENTA, 2)
+    cv2.line(image, _pt(thumb), _pt(tip), colour, thickness, cv2.LINE_AA)
+    cv2.circle(image, _pt(thumb), 6, colour, cv2.FILLED)
+
+
 def draw_progress_ring(image: np.ndarray, centre: tuple[float, float], progress: float,
                        colour: tuple[int, int, int], label: str | None = None) -> None:
     """Arc around the fingertip filling clockwise from 12 o'clock as progress goes 0 -> 1."""
@@ -124,7 +134,7 @@ def mode_hint(result: FrameResult, vertex_count: int, min_vertices: int) -> str:
         return "Point & hold still = add point   |   Fist 1s = undo"
     if result.mode is Mode.GRAB:
         return "Move your open hand to drag the zone   |   Close your hand to drop it"
-    return "Point inside the zone   |   Open palm = move zone   |   Fist 2s = clear"
+    return "Point = move   |   Pinch = click   |   Open palm = move zone   |   Fist 2s = clear"
 
 
 def render(image: np.ndarray, result: FrameResult, vertices: list[Point], closed: bool,
@@ -144,6 +154,8 @@ def render(image: np.ndarray, result: FrameResult, vertices: list[Point], closed
             colour = GREEN if result.inside else ORANGE
         else:
             colour = CYAN if result.pose in (Pose.POINT, Pose.OPEN_PALM) else GREY
+        if result.thumb_tip is not None and (result.cursor_frozen or result.pose is Pose.PINCH):
+            draw_pinch(image, result.tip, result.thumb_tip, result.pose is Pose.PINCH)
         draw_fingertip(image, result.tip, colour)
         draw_progress_ring(image, result.tip, result.dwell_progress, CYAN)
         if result.hold_action is not None:
@@ -221,6 +233,7 @@ TONES = {
     Event.QUICK_ZONE: (1320, 180),
     Event.ZONE_GRABBED: (660, 80),
     Event.ZONE_DROPPED: (990, 80),
+    Event.CLICK: (1500, 40),
 }
 
 
