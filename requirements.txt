@@ -1,0 +1,8 @@
+# Tested with Python 3.11 and 3.12 (see README for why not newer).
+mediapipe==1.0.1
+# mediapipe already depends on opencv-contrib-python. Installing opencv-python as
+# well would put two copies of the cv2 module in the same folder, which breaks in
+# confusing ways, so we pin the contrib build instead (it's a superset).
+opencv-contrib-python==5.0.0.93
+numpy==2.4.6
+pytest==9.1.1
