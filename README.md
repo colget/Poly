@@ -20,7 +20,7 @@ pointer and clicking are fully touchless. Saved profiles are still to come.
 | DRAWING | Hold still on an earlier point (3+ points placed) | Finish: the points are joined into a zone -> ACTIVE |
 | DRAWING | Fist held ~1 s | Undo the last point |
 | DRAWING | Open palm held ~1.5 s (no points yet) | Quick zone: a ready-made rectangle around your hand -> ACTIVE |
-| ACTIVE | Point inside the zone | Moves the mouse pointer: the zone is stretched over the whole screen |
+| ACTIVE | Point inside the zone | Moves the mouse pointer (see pointer modes below) |
 | ACTIVE | Point outside the zone | Nothing - the pointer stays put, so you can let go of the mouse |
 | ACTIVE | Pinch thumb tip to index tip (inside the zone) | Left click. The pointer freezes as your thumb closes in, so the click lands where you aimed. Two quick pinches = double-click |
 | ACTIVE | Open palm held ~0.5 s | Pick the zone up; it follows your hand. Close your hand to drop it |
@@ -31,10 +31,17 @@ bottom part of the picture, your palm is below the camera's view and tracking dr
 shaded band at the bottom of the screen shows where this happens. Keep zones above it (quick
 zones do this automatically), sit a little further back, or tilt the camera down.
 
+**Two pointer modes** (`--pointer`):
+
+- `tablet` (default): each spot in the zone *is* a spot on the screen, like a drawing tablet. A
+  4-cornered zone uses a perspective transform, so even a skewed zone reaches every screen corner.
+- `trackpad`: moving your finger *nudges* the pointer, like a laptop trackpad, with acceleration
+  (slow = precise, quick flick = far). Leaving the zone or relaxing your finger is "lifting" it.
+  Movement is measured in hand sizes and scaled to the screen width, so it feels the same close
+  to or far from the camera, and on a laptop or a big TV.
+
 **Mouse control is off unless you ask for it.** By default a small screen map (bottom-right)
 only *previews* where the pointer would go. Run with `--control-cursor` to move the real mouse.
-A 4-cornered zone is mapped with a perspective transform, so even a skewed zone reaches every
-corner of the screen; other shapes use their bounding box.
 
 The banner at the top always shows the current mode and what you can do. `--sound` adds a short
 beep when a gesture is recognised. Quit with ESC/q or by closing the window.
@@ -53,7 +60,8 @@ python poly.py
 
 Options: `--camera INDEX` (try 1 or 2 if you get no image), `--model PATH` (defaults to
 `hand_landmarker.task` next to `poly.py`), `--source VIDEO_FILE` (replay a recorded clip
-instead of the webcam), `--sound`, `--control-cursor` (move the real mouse), `--screen WxH`
+instead of the webcam), `--sound`, `--control-cursor` (move the real mouse),
+`--pointer tablet|trackpad`, `--camera-backend`, `--resolution WxH`, `--fps N`, `--screen WxH`
 (override the detected screen size, e.g. `--screen 2560x1440`), and `--debug-keys` (developer fallback: 'd' add point,
 'f' close, 'r' clear).
 

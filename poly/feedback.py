@@ -181,7 +181,8 @@ def render(image: np.ndarray, result: FrameResult, vertices: list[Point], closed
 
 def draw_screen_preview(image: np.ndarray, screen_size: tuple[int, int],
                         position: tuple[int, int] | None, moving: bool,
-                        controls_mouse: bool, width: int = 150) -> None:
+                        controls_mouse: bool, pointer_mode: str = "tablet",
+                        width: int = 150) -> None:
     """Mini map of the computer screen (bottom-right) with a dot where the pointer is.
 
     Why: without --control-cursor this is the only way to see where the pointer
@@ -196,6 +197,7 @@ def draw_screen_preview(image: np.ndarray, screen_size: tuple[int, int],
     area[:] = (area * 0.35).astype(image.dtype)
     cv2.rectangle(image, (x0, y0), (x1, y1), WHITE, 1)
     label, colour = ("Mouse: ON", GREEN) if controls_mouse else ("Mouse: preview", GREY)
+    label += f" ({pointer_mode})"
     cv2.putText(image, label, (x0, y0 - 6), FONT, 0.45, colour, 1)
     if position is not None:
         px = x0 + int(position[0] / max(sw - 1, 1) * (width - 1))

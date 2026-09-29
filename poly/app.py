@@ -16,6 +16,7 @@ from poly.cursor import detect_screen_size, make_cursor
 from poly.filters import FpsMeter
 from poly.geometry import ZoneMapper, landmarks_to_pixels, parse_size
 from poly.modes import Event, ModeMachine, should_move_cursor
+from poly.pointer import PointerMode, TrackpadPointer
 from poly.tracker import HandTracker
 
 # hand_landmarker.task sits in the repo root, one level above this package.
@@ -56,6 +57,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="beep when a gesture is recognised")
     parser.add_argument("--control-cursor", action="store_true",
                         help="actually move the mouse pointer (otherwise only a preview is shown)")
+    parser.add_argument("--pointer", type=PointerMode, choices=list(PointerMode),
+                        default=PointerMode.TABLET, metavar="{tablet,trackpad}",
+                        help="tablet: each spot in the zone is a spot on screen (default). "
+                             "trackpad: moving your finger nudges the pointer, with acceleration")
     parser.add_argument("--screen", type=parse_size, default=None, metavar="WxH",
                         help="screen size, e.g. 1920x1080 (default: detected automatically)")
     return parser.parse_args(argv)
@@ -141,6 +146,7 @@ def main(argv: list[str] | None = None) -> None:
     screen_size = args.screen or detect_screen_size() or FALLBACK_SCREEN
     cursor = make_cursor(args.control_cursor)
     mapper: ZoneMapper | None = None
+    trackpad = TrackpadPointer(screen_size, config)
     machine = ModeMachine(config)
     flash = feedback.Flash(config.flash_message_s)
     sounds = feedback.Sounds(args.sound)
@@ -154,6 +160,7 @@ def main(argv: list[str] | None = None) -> None:
         print("Zone: open palm = pick the zone up and move it; close your hand to drop it.")
         print("      Point inside the zone to move the pointer; pinch thumb + index to click.")
         print("      Fist held 2 s = clear and redraw.")
+        print(f"Pointer mode: {args.pointer.value}")
         if cursor.controls_mouse:
             print(f"Mouse control ON (screen {screen_size[0]}x{screen_size[1]}). "
                   "Move your finger out of the zone to let go of the mouse.")
@@ -206,7 +213,14 @@ def main(argv: list[str] | None = None) -> None:
                 mapper = ZoneMapper(machine.polygon.vertices, screen_size,
                                     config.cursor_edge_padding)
             cursor_moving = False
-            if mapper is not None and should_move_cursor(result):
+            touching = mapper is not None and should_move_cursor(result)
+            if not touching:
+                trackpad.lift()
+            elif args.pointer is PointerMode.TRACKPAD:
+                cursor.move_to(trackpad.move(result.tip, result.hand_size or 0.0, now_s,
+                                             cursor.current_position()))
+                cursor_moving = True
+            else:
                 target = mapper.map(result.tip)
                 if target is not None:
                     cursor.move_to(target)
@@ -216,7 +230,8 @@ def main(argv: list[str] | None = None) -> None:
                             config, args.debug_keys, measured_fps)
             if machine.polygon.closed:
                 feedback.draw_screen_preview(frame, screen_size, cursor.position,
-                                             cursor_moving, cursor.controls_mouse)
+                                             cursor_moving, cursor.controls_mouse,
+                                             args.pointer.value)
             flash.draw(frame, now_s)
             cv2.imshow(WINDOW_NAME, frame)
 

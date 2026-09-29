@@ -52,6 +52,10 @@ class PreviewCursor:
         """Record `position` as the pointer position."""
         self.position = position
 
+    def current_position(self) -> tuple[int, int] | None:
+        """Where the pointer is now."""
+        return self.position
+
     def click(self) -> None:
         """Record a left click at the current position."""
         self.clicks += 1
@@ -74,6 +78,11 @@ class SystemCursor(PreviewCursor):
         if position != self.position:
             self._mouse.position = position
         super().move_to(position)
+
+    def current_position(self) -> tuple[int, int] | None:
+        """Where the real pointer is now - it may have been moved by the real mouse."""
+        pos = self._mouse.position
+        return (int(pos[0]), int(pos[1])) if pos is not None else self.position
 
     def click(self) -> None:
         """Left click wherever the real pointer is."""

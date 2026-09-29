@@ -114,6 +114,18 @@ class Config:
     # edge, so edges and corners are easy to reach without leaving the zone.
     cursor_edge_padding: float = 0.06
 
+    # --- Trackpad mode (--pointer trackpad) --------------------------------------------
+    # Finger speeds (hand sizes per second) where acceleration starts and tops out.
+    # A hand size is roughly 9 cm, so 0.5 ~ 4.5 cm/s (careful aiming) and
+    # 3.0 ~ 27 cm/s (a quick flick).
+    trackpad_slow_speed_hands: float = 0.5
+    trackpad_fast_speed_hands: float = 3.0
+    # Pointer travel per hand size of finger movement, in screen widths, when moving
+    # slowly (precise) and quickly (fast travel). Raise both if the pointer feels
+    # sluggish; lower min_gain for finer control.
+    trackpad_min_gain: float = 0.25
+    trackpad_max_gain: float = 1.5
+
     # --- Feedback -----------------------------------------------------------------------
     # How long an on-screen confirmation ("Point added") stays visible.
     flash_message_s: float = 1.2

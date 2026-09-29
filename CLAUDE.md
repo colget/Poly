@@ -58,6 +58,15 @@ profiles. **Drawing currently depends on the keyboard — this is the main thing
 | ACTIVE | Open palm (4–5 fingers) held ~0.5 s | Grab & move zone (follows palm centre, clamped to frame) | Big, unmistakable gesture; short hold so a briefly opened hand doesn't move the zone. Implemented early (owner request) |
 | ACTIVE | Fist held ~2 s | Clear & redraw | Long hold because it's destructive |
 
+### Pointer modes (owner request: support both)
+- **tablet** (default, `ZoneMapper`): absolute; zone → screen via perspective transform
+  (4 convex corners) or bounding box.
+- **trackpad** (`pointer.TrackpadPointer`): relative with acceleration. Finger movement is
+  measured in hand sizes (distance-independent: users may be far from the camera) and pointer
+  movement in screen widths (works on large screens). Leaving the zone / non-point pose /
+  pinch freeze = "lift" (no jump on touch-down). Continues from the real pointer position.
+- Chosen with `--pointer` for now; a gesture toggle or per-profile setting could come later.
+
 ### Recognition rules (important for reliability)
 - A gesture only "counts" after it has been stable for several consecutive frames
   (debounce). Why: MediaPipe sometimes misclassifies single frames, especially

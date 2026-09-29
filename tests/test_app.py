@@ -5,6 +5,7 @@ import pytest
 from poly.app import DEFAULT_MODEL_PATH, handle_debug_key, parse_args
 from poly.config import DEFAULT_CONFIG
 from poly.modes import Mode, ModeMachine
+from poly.pointer import PointerMode
 
 
 def test_default_args():
@@ -18,12 +19,14 @@ def test_default_args():
     assert args.screen is None
     assert args.camera_backend == "auto"
     assert args.resolution is None and args.fps is None
+    assert args.pointer is PointerMode.TABLET
 
 
 def test_all_args():
     args = parse_args(["--camera", "2", "--model", "m.task", "--source", "clip.mp4", "--debug-keys", "--sound",
                        "--control-cursor", "--screen", "2560x1440",
-                       "--camera-backend", "dshow", "--resolution", "1280x720", "--fps", "60"])
+                       "--camera-backend", "dshow", "--resolution", "1280x720", "--fps", "60",
+                       "--pointer", "trackpad"])
     assert args.camera == 2
     assert args.model == Path("m.task")
     assert args.source == Path("clip.mp4")
@@ -33,6 +36,7 @@ def test_all_args():
     assert args.screen == (2560, 1440)
     assert args.camera_backend == "dshow"
     assert args.resolution == (1280, 720) and args.fps == 60
+    assert args.pointer is PointerMode.TRACKPAD
 
 
 def test_debug_keys_draw_close_and_clear():
