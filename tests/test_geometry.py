@@ -1,6 +1,8 @@
 import pytest
 
-from poly.geometry import PolygonDraft, distance, landmarks_to_pixels, point_in_polygon
+from poly.geometry import (
+    PolygonDraft, distance, landmarks_to_pixels, order_around_centroid, point_in_polygon,
+)
 
 SQUARE = [(0, 0), (100, 0), (100, 100), (0, 100)]
 
@@ -45,6 +47,42 @@ def test_draft_rejects_vertex_too_close_to_previous():
     assert not draft.add_vertex((15, 0), min_distance=15)  # exactly at the limit
     assert draft.add_vertex((16, 0), min_distance=15)
     assert draft.vertices == [(0, 0), (16, 0)]
+
+
+def test_draft_rejects_vertex_on_top_of_any_earlier_vertex():
+    draft = PolygonDraft()
+    for v in [(0, 0), (100, 0), (100, 100)]:
+        draft.add_vertex(v, 15)
+    assert not draft.add_vertex((5, 5), min_distance=15)  # near the first, not the last
+
+
+def _rotations(seq):
+    return [seq[i:] + seq[:i] for i in range(len(seq))]
+
+
+def test_order_around_centroid_untangles_any_order():
+    corners = [(0, 0), (100, 0), (100, 100), (0, 100)]  # clockwise on screen
+    bow_tie = [(0, 0), (100, 100), (100, 0), (0, 100)]
+    assert order_around_centroid(bow_tie) in _rotations(corners)
+
+
+def test_order_around_centroid_keeps_an_inner_point_as_a_notch():
+    pts = [(0, 0), (100, 0), (100, 100), (0, 100), (50, 20)]
+    ordered = order_around_centroid(pts)
+    assert sorted(ordered) == sorted(pts)
+    assert not point_in_polygon((50, 10), ordered)  # carved out by the notch
+    assert point_in_polygon((50, 60), ordered)
+
+
+def test_order_around_centroid_leaves_tiny_inputs_alone():
+    assert order_around_centroid([(1, 2), (3, 4)]) == [(1, 2), (3, 4)]
+
+
+def test_close_reorders_vertices():
+    draft = PolygonDraft(vertices=[(0, 0), (100, 100), (100, 0), (0, 100)])
+    assert draft.close(3)
+    assert draft.contains((50, 50))
+    assert draft.contains((90, 50))  # a bow-tie would leave this outside
 
 
 def test_draft_needs_min_vertices_to_close():

@@ -40,27 +40,52 @@ def point_in_polygon(point: tuple[float, float], polygon: list[Point]) -> bool:
     return cv2.pointPolygonTest(contour, (float(point[0]), float(point[1])), False) >= 0
 
 
+def order_around_centroid(points: list[Point]) -> list[Point]:
+    """Order points by angle around their centre, so they form a shape whose
+    edges never cross - whatever order the user placed them in.
+
+    Why this works: seen from the centre, each edge joins two neighbouring
+    directions, so every edge sits in its own "slice" of the circle and can't
+    cross another. The centroid is always inside the points' outline, so no gap
+    between neighbouring directions exceeds 180 degrees.
+
+    Points on the outside make the shape convex; a point placed further in makes a
+    notch (a concave corner), which is how irregular zones are still possible.
+    """
+    if len(points) < 3:
+        return list(points)
+    cx = sum(p[0] for p in points) / len(points)
+    cy = sum(p[1] for p in points) / len(points)
+    return sorted(points, key=lambda p: math.atan2(p[1] - cy, p[0] - cx))
+
+
 @dataclass
 class PolygonDraft:
-    """The polygon the user is tracing: a list of pixel vertices plus a closed flag."""
+    """The zone being drawn: pixel vertices plus a closed flag.
+
+    While drawing, vertices are kept in the order they were placed (so undo removes
+    the latest one). Closing reorders them into a non-crossing outline.
+    """
 
     vertices: list[Point] = field(default_factory=list)
     closed: bool = False
 
     def add_vertex(self, point: Point, min_distance: float) -> bool:
         """Append `point` unless the polygon is closed or `point` is within
-        `min_distance` of the previous vertex. Returns True if it was added."""
+        `min_distance` of any existing vertex. Returns True if it was added."""
         if self.closed:
             return False
-        if self.vertices and distance(point, self.vertices[-1]) <= min_distance:
+        if any(distance(point, v) <= min_distance for v in self.vertices):
             return False
         self.vertices.append(point)
         return True
 
     def close(self, min_vertices: int) -> bool:
-        """Close the polygon if it has enough vertices. Returns True on success."""
+        """Close the polygon if it has enough vertices, ordering them into a
+        non-crossing outline. Returns True on success."""
         if self.closed or len(self.vertices) < min_vertices:
             return False
+        self.vertices[:] = order_around_centroid(self.vertices)
         self.closed = True
         return True
 

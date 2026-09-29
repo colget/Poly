@@ -12,6 +12,11 @@ FPS = 30
 SQUARE = [(150, 120), (450, 120), (450, 380), (150, 380)]
 
 
+def shoelace_area(pts):
+    """Area of a polygon; a self-crossing outline would come out much smaller."""
+    return abs(sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in zip(pts, pts[1:] + pts[:1]))) / 2
+
+
 class Sim:
     """Feeds frames into a ModeMachine and records everything that happened."""
 
@@ -144,7 +149,7 @@ def test_cannot_close_with_fewer_than_three_points():
     sim.draw(SQUARE[:2])
     sim.move(Pose.POINT, SQUARE[1], SQUARE[0], 0.4)
     r = sim.hold(Pose.POINT, SQUARE[0], 2.0)
-    assert not r.near_first_vertex
+    assert r.close_target is None
     assert sim.m.mode is Mode.DRAWING
 
 
@@ -156,11 +161,37 @@ def test_no_vertex_stacked_on_an_earlier_vertex():
     assert len(sim.m.polygon.vertices) == 2
 
 
-def test_near_first_vertex_is_reported_for_the_highlight():
+def test_close_target_is_reported_for_the_highlight():
     sim = Sim()
     sim.draw(SQUARE[:3])
-    r = sim.move(Pose.POINT, SQUARE[2], (SQUARE[0][0] + 10, SQUARE[0][1]), 0.6)
-    assert r.near_first_vertex
+    r = sim.move(Pose.POINT, SQUARE[2], (SQUARE[1][0] + 10, SQUARE[1][1]), 0.6)
+    assert r.close_target == sim.m.polygon.vertices[1]
+
+
+def test_points_in_any_order_make_a_non_crossing_zone():
+    # "Bow-tie" order: joining these in placement order would cross itself.
+    sim = Sim()
+    sim.draw([SQUARE[0], SQUARE[2], SQUARE[1], SQUARE[3]])
+    assert sim.m.mode is Mode.DRAWING
+    # Finish on a point that was neither first nor last.
+    sim.move(Pose.POINT, SQUARE[3], SQUARE[2], 0.4)
+    sim.hold(Pose.POINT, SQUARE[2], 1.5)
+    assert sim.events[-1] is Event.POLYGON_CLOSED
+    assert abs(shoelace_area(sim.m.polygon.vertices) - 300 * 260) < 2000
+    assert sim.move(Pose.POINT, SQUARE[2], (300, 250), 0.5).inside
+
+
+def test_resting_near_the_latest_point_does_not_finish():
+    # Right after placing a point the finger is still beside it: a small drift
+    # and a pause must not finish the zone by accident.
+    sim = Sim()
+    sim.draw(SQUARE[:3])
+    drift = (SQUARE[2][0] + 25, SQUARE[2][1])
+    sim.move(Pose.POINT, SQUARE[2], drift, 0.2)
+    r = sim.hold(Pose.POINT, drift, 0.5)
+    assert r.close_target is None
+    sim.hold(Pose.POINT, drift, 1.5)
+    assert Event.POLYGON_CLOSED not in sim.events
 
 
 def test_fist_undoes_one_vertex_per_hold():

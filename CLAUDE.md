@@ -37,7 +37,7 @@ profiles. **Drawing currently depends on the keyboard — this is the main thing
 ```
             (no saved profile)                    (saved profile found)
    start ───────────────────► DRAWING      start ─────────────────────► ACTIVE
-                                 │  close polygon                         ▲
+                                 │  close polygon (dwell on earlier pt)   ▲
                                  └────────────────────────────────────────┘
    ACTIVE ── fist held ~2 s ──► DRAWING (polygon cleared)
    ACTIVE ── open palm ───────► GRAB ── palm closes / hand leaves ──► ACTIVE
@@ -48,7 +48,7 @@ profiles. **Drawing currently depends on the keyboard — this is the main thing
 | Mode | Gesture | Action | Why this gesture |
 |---|---|---|---|
 | DRAWING | Point (index only) + **hold still ~0.8 s** (dwell) | Add vertex | Dwell needs no second gesture and is a proven accessibility technique; a progress ring shows it filling |
-| DRAWING | Dwell **near the first vertex** (3+ points placed) | Close polygon → ACTIVE | Mirrors how drawing tools close shapes; no extra gesture to learn |
+| DRAWING | Dwell **on any earlier vertex** (3+ points placed; not the one just placed) | Close polygon → ACTIVE | Owner's choice after testing: points are placed freely in any order with no path drawn between them; on close they are ordered by angle around their centroid so the outline never self-intersects. The just-placed vertex is excluded so a small drift after placing can't close by accident |
 | DRAWING | Fist held ~1 s | Undo last vertex | Quick correction without restarting |
 | ACTIVE | Point, inside zone | Move cursor | Core feature |
 | ACTIVE | Point, outside zone | Nothing | Lets the user work normally without moving the mouse |

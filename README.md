@@ -16,8 +16,8 @@ grabbing the zone and saved profiles are still to come.
 
 | Mode | Gesture | Action |
 |---|---|---|
-| DRAWING | Point (index finger only) and hold still ~0.8 s | Add a point (a ring fills while you hold) |
-| DRAWING | Hold still on the first point (3+ points placed) | Close the zone -> ACTIVE |
+| DRAWING | Point (index finger only) and hold still ~0.8 s | Add a point anywhere, in any order (a ring fills while you hold) |
+| DRAWING | Hold still on an earlier point (3+ points placed) | Finish: the points are joined into a zone -> ACTIVE |
 | DRAWING | Fist held ~1 s | Undo the last point |
 | ACTIVE | Point | Shows whether your fingertip is inside the zone |
 | ACTIVE | Fist held ~2 s | Clear the zone and draw a new one |

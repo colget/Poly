@@ -2,7 +2,7 @@
 timestamps into mode changes, polygon edits and events. No camera or drawing code
 here - feed it synthetic landmarks and fake times in tests.
 
-    DRAWING --dwell near first vertex (3+ points)--> ACTIVE
+    DRAWING --dwell on an earlier point (3+ points)--> ACTIVE
     ACTIVE  --fist held clear_hold_s-------------------> DRAWING (polygon cleared)
 
 GRAB (open palm) and clicking (pinch) arrive in a later phase.
@@ -41,7 +41,7 @@ class Event(Enum):
 
     VERTEX_ADDED = "Point added"
     VERTEX_UNDONE = "Point undone"
-    POLYGON_CLOSED = "Zone closed"
+    POLYGON_CLOSED = "Zone finished"
     POLYGON_CLEARED = "Zone cleared - draw a new one"
 
 
@@ -63,7 +63,7 @@ class FrameResult:
     dwell_progress: float = 0.0       # 0..1
     hold_action: HoldAction | None = None
     hold_progress: float = 0.0        # 0..1
-    near_first_vertex: bool = False   # dwelling here would close the polygon
+    close_target: Point | None = None  # vertex under the finger; dwelling finishes the zone
     inside: bool = False              # fingertip inside the closed polygon
     events: list[Event] = field(default_factory=list)
 
@@ -119,17 +119,14 @@ class ModeMachine:
             vertices.pop()
             events.append(Event.VERTEX_UNDONE)
 
-        near_first = (
-            len(vertices) >= cfg.min_polygon_vertices
-            and distance(tip, vertices[0]) <= cfg.close_radius_hands * size
-        )
+        close_target = self._close_target(tip, size)
         # Don't even start a dwell on top of an existing vertex: it would fill the
         # ring and then stack a duplicate point, which feels broken.
         too_close = any(distance(tip, v) <= cfg.min_vertex_distance_px for v in vertices)
 
-        if pose is Pose.POINT and (near_first or not too_close):
+        if pose is Pose.POINT and (close_target is not None or not too_close):
             if self._dwell.update(tip, now_s, cfg.dwell_radius_hands * size):
-                if near_first:
+                if close_target is not None:
                     self.close_polygon()
                     events.append(Event.POLYGON_CLOSED)
                 elif self.polygon.add_vertex(_round(tip), cfg.min_vertex_distance_px):
@@ -145,7 +142,7 @@ class ModeMachine:
             dwell_progress=self._dwell.progress,
             hold_action=HoldAction.UNDO if self._undo_hold.progress > 0 else None,
             hold_progress=self._undo_hold.progress,
-            near_first_vertex=near_first, events=events,
+            close_target=close_target, events=events,
         )
 
     def _update_active(self, pose: Pose, tip: tuple[float, float], now_s: float) -> FrameResult:
@@ -160,6 +157,21 @@ class ModeMachine:
             hold_progress=self._clear_hold.progress,
             inside=self.polygon.contains(tip), events=events,
         )
+
+    def _close_target(self, tip: tuple[float, float], size: float) -> Point | None:
+        """The placed point the finger is resting on, if dwelling there should
+        finish the zone.
+
+        Any point counts except the most recent one. Why: right after placing a
+        point the finger is still next to it, and a small drift followed by a
+        pause would otherwise finish the zone by accident.
+        """
+        vertices = self.polygon.vertices
+        if len(vertices) < self.config.min_polygon_vertices:
+            return None
+        radius = self.config.close_radius_hands * size
+        candidates = [v for v in vertices[:-1] if distance(tip, v) <= radius]
+        return min(candidates, key=lambda v: distance(tip, v), default=None)
 
     def _hand_missing(self) -> FrameResult:
         """No hand this frame. Brief dropouts keep the previous state (without

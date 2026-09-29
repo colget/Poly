@@ -39,7 +39,8 @@ def _pt(p: tuple[float, float]) -> Point:
 
 
 def draw_polygon(image: np.ndarray, vertices: list[Point], closed: bool) -> None:
-    """Closed: green outline with a light fill. Drawing: amber path with dots."""
+    """Closed: green outline with a light fill. Drawing: loose amber dots only -
+    the order points are placed in doesn't matter, so no path is drawn."""
     if not vertices:
         return
     pts = np.array(vertices, np.int32).reshape((-1, 1, 2))
@@ -49,24 +50,16 @@ def draw_polygon(image: np.ndarray, vertices: list[Point], closed: bool) -> None
         cv2.addWeighted(fill, 0.15, image, 0.85, 0, dst=image)
         cv2.polylines(image, [pts], isClosed=True, color=GREEN, thickness=3)
         return
-    if len(vertices) > 1:
-        cv2.polylines(image, [pts], isClosed=False, color=AMBER, thickness=2)
     for v in vertices:
-        cv2.circle(image, v, 5, AMBER, cv2.FILLED)
+        cv2.circle(image, v, 7, AMBER, cv2.FILLED)
+        cv2.circle(image, v, 9, BLACK, 1)  # thin outline so dots show on any background
 
 
-def draw_first_vertex_hint(image: np.ndarray, first: Point, near: bool) -> None:
-    """Ring the first vertex; turns big and green when dwelling would close."""
-    if near:
-        cv2.circle(image, first, 18, GREEN, 3)
-        cv2.putText(image, "Hold to close", (first[0] + RING_RADIUS + 12, first[1] - 14), FONT, 0.6, GREEN, 2)
-    else:
-        cv2.circle(image, first, 10, AMBER, 2)
-
-
-def draw_rubber_band(image: np.ndarray, last: Point, tip: tuple[float, float]) -> None:
-    """Thin line from the last vertex to the fingertip: shows the next edge."""
-    cv2.line(image, last, _pt(tip), GREY, 1, cv2.LINE_AA)
+def draw_close_hint(image: np.ndarray, target: Point) -> None:
+    """Highlight the point under the finger: holding still here finishes the zone."""
+    cv2.circle(image, target, 18, GREEN, 3)
+    cv2.putText(image, "Hold to finish", (target[0] + RING_RADIUS + 12, target[1] - 14),
+                FONT, 0.6, GREEN, 2)
 
 
 def draw_fingertip(image: np.ndarray, tip: tuple[float, float], colour: tuple[int, int, int]) -> None:
@@ -101,7 +94,7 @@ def mode_hint(result: FrameResult, vertex_count: int, min_vertices: int) -> str:
     if result.mode is Mode.DRAWING:
         hint = "Point & hold still = add point   |   Fist 1s = undo"
         if vertex_count >= min_vertices:
-            hint = "Hold on the first point to close   |   Fist 1s = undo"
+            hint = "Hold on an earlier point to finish   |   Fist 1s = undo"
         return hint
     return "Point inside the zone   |   Fist 2s = clear & redraw"
 
@@ -111,10 +104,8 @@ def render(image: np.ndarray, result: FrameResult, vertices: list[Point], closed
     """Draw every overlay for one frame onto `image` (in place)."""
     draw_polygon(image, vertices, closed)
 
-    if result.mode is Mode.DRAWING and vertices:
-        draw_first_vertex_hint(image, vertices[0], result.near_first_vertex)
-        if result.tip is not None:
-            draw_rubber_band(image, vertices[-1], result.tip)
+    if result.mode is Mode.DRAWING and result.close_target is not None:
+        draw_close_hint(image, result.close_target)
 
     if result.tip is not None:
         if result.mode is Mode.ACTIVE:

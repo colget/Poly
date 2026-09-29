@@ -61,8 +61,8 @@ class Config:
     # "Still" = the fingertip stays within this radius (hand sizes) of where the
     # dwell started. Big enough to forgive tremor, small enough to feel deliberate.
     dwell_radius_hands: float = 0.25
-    # Dwelling within this distance (hand sizes) of the first vertex closes the
-    # polygon (once there are enough vertices).
+    # Dwelling within this distance (hand sizes) of an earlier point finishes the
+    # zone (once there are enough points).
     close_radius_hands: float = 0.5
     # A new vertex closer than this (pixels) to the previous one is ignored, so two
     # points never stack on the same spot.
