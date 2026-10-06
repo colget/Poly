@@ -54,8 +54,11 @@ Open **PowerShell** and run these one at a time:
 git clone https://github.com/colget/Poly.git
 cd Poly
 
-# 2. Make a private Python environment for Poly (keeps its libraries separate)
-py -3.14 -m venv venv
+# 2. Make a private Python environment for Poly (keeps its libraries separate).
+#    First check the version: it must say 3.14. If it doesn't, install Python 3.14
+#    first (see "What you need"), open a new PowerShell window and come back here.
+python --version
+python -m venv venv
 
 # 3. Switch to it (your prompt then starts with "(venv)")
 venv\Scripts\activate
@@ -381,7 +384,8 @@ size such as 1536x864; that's normal and still reaches the whole screen.
 MediaPipe's normal start-up messages and can be ignored.
 
 **`pip install` fails.** Check `python --version` says 3.14, the version Poly is tested on.
-If you have several Pythons installed, make the venv with `py -3.14 -m venv venv`.
+If it doesn't, install Python 3.14 first, delete the `venv` folder, and make it again with
+`python -m venv venv`.
 
 ## Known limitations
 
