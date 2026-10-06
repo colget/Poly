@@ -3,7 +3,8 @@
 # tests in a Claude Code cloud session (the container starts with no packages).
 #
 # Safe to run every session:
-#   - work that's already done is skipped (venv exists, requirements unchanged);
+#   - work that's already done is skipped (venv exists, requirements unchanged,
+#     system library already present);
 #   - it never fails the session: any problem is reported as a clear message and
 #     the hook still exits 0, so the session starts and Claude can see what broke.
 
@@ -15,6 +16,13 @@ REQUIREMENTS="requirements.txt"
 # Hash of requirements.txt from the last successful install, kept inside the venv
 # so deleting the venv also forgets it.
 STAMP_FILE="$VENV_DIR/.requirements.sha256"
+# MediaPipe's native library needs these graphics libraries to load. The cloud
+# container doesn't ship them; without them the real-MediaPipe test is skipped.
+# Each entry is "library file:apt package that provides it".
+SYSTEM_LIBRARIES=(
+  "libEGL.so.1:libegl1"
+  "libGLESv2.so.2:libgles2"
+)
 
 # Only run in cloud sessions. On a local machine you manage your own venv
 # (see README), and this bash script wouldn't run on Windows anyway.
@@ -24,6 +32,12 @@ fi
 
 say() { echo "[session-start] $*"; }
 
+# For optional steps: report the problem but keep going.
+warn() {
+  say "WARNING: $*"
+}
+
+# For essential steps: report the problem and stop (still exit 0, see above).
 fail() {
   say "WARNING: $*"
   say "The session will continue, but tests may not run until this is fixed."
@@ -68,7 +82,51 @@ else
   echo "$wanted_hash" > "$STAMP_FILE"
 fi
 
-# 3. Activate the venv for the rest of the session, so plain `python` and
+# 3. Install the system graphics libraries MediaPipe needs, unless they're already
+#    there. Optional: if they can't be installed, everything else still works and
+#    only the one real-MediaPipe test is skipped, so warn instead of stopping.
+has_library() { ldconfig -p 2>/dev/null | grep -q "$1"; }
+
+install_system_packages() {
+  # Use sudo only when not already root (cloud sessions normally run as root).
+  local sudo=""
+  if [ "$(id -u)" -ne 0 ]; then
+    command -v sudo >/dev/null 2>&1 || return 1
+    sudo="sudo -n"
+  fi
+  command -v apt-get >/dev/null 2>&1 || return 1
+  # Try straight away; if the package lists are missing or stale, refresh them once.
+  DEBIAN_FRONTEND=noninteractive $sudo apt-get install -y -qq "$@" >/dev/null 2>&1 && return 0
+  $sudo apt-get update -qq >/dev/null 2>&1 \
+    && DEBIAN_FRONTEND=noninteractive $sudo apt-get install -y -qq "$@" >/dev/null 2>&1
+}
+
+missing_packages=()
+for entry in "${SYSTEM_LIBRARIES[@]}"; do
+  library="${entry%%:*}"
+  package="${entry##*:}"
+  if has_library "$library"; then
+    say "$library already installed - skipping $package"
+  else
+    missing_packages+=("$package")
+  fi
+done
+
+if [ "${#missing_packages[@]}" -gt 0 ]; then
+  say "installing ${missing_packages[*]} (graphics libraries for MediaPipe)"
+  install_system_packages "${missing_packages[@]}"
+  still_missing=()
+  for entry in "${SYSTEM_LIBRARIES[@]}"; do
+    has_library "${entry%%:*}" || still_missing+=("${entry##*:}")
+  done
+  if [ "${#still_missing[@]}" -eq 0 ]; then
+    say "${missing_packages[*]} installed"
+  else
+    warn "could not install ${still_missing[*]} - the real-MediaPipe test in tests/test_tracker.py will be skipped; all other tests still run"
+  fi
+fi
+
+# 4. Activate the venv for the rest of the session, so plain `python` and
 #    `pytest` in Claude's shell use it.
 if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
   {
