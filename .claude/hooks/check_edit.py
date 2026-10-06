@@ -6,12 +6,14 @@ and passes the tool call as JSON on stdin. Exit codes:
   0 - nothing to do, or everything passed. Prints nothing.
   2 - an import rule is broken or a test failed. Claude Code feeds stderr back to
       Claude, so it sees the failure straight away and fixes it.
-  1 - the hook itself can't run (e.g. no venv). Shown to the user, not blocking.
+  1 - no Python with pytest was found. Shown to the user, not blocking.
 
-Stdlib only, so it runs with any Python 3 - the venv is only needed for pytest.
+Works on Windows and Linux. Stdlib only, so any Python 3 can run the hook itself;
+pytest only needs to be in the Python that runs the tests (see find_test_python).
 """
 
 import ast
+import importlib.util
 import json
 import os
 import subprocess
@@ -32,6 +34,12 @@ ALLOWED_IMPORTERS = {
 # How much pytest output to feed back on failure: enough for the traceback and
 # summary, not so much that it floods Claude's context.
 MAX_OUTPUT_LINES = 80
+
+# Where to look for a venv, in order: ".venv" is what the cloud SessionStart hook
+# makes, "venv" is what the README tells you to make on Windows.
+VENV_NAMES = (".venv", "venv")
+# A venv's Python lives in bin/ on Linux/macOS and in Scripts\ on Windows.
+VENV_PYTHONS = ("bin/python", "Scripts/python.exe")
 
 
 def edited_path(event: dict) -> Path | None:
@@ -87,28 +95,53 @@ def import_rule_violations() -> list[str]:
     return problems
 
 
-def venv_python() -> Path | None:
-    """The project's venv Python: .venv/bin (Linux/macOS) or .venv/Scripts (Windows)."""
-    for candidate in (".venv/bin/python", ".venv/Scripts/python.exe"):
-        path = PROJECT_DIR / candidate
-        if path.exists():
-            return path
+def venv_has_pytest(venv: Path) -> bool:
+    """True if pytest is installed in this venv. Checks the folder instead of starting
+    the venv's Python, so the hook stays fast. site-packages is in lib/pythonX.Y on
+    Linux/macOS and in Lib on Windows."""
+    return any(venv.glob("lib/python*/site-packages/pytest")) \
+        or (venv / "Lib" / "site-packages" / "pytest").is_dir()
+
+
+def find_test_python(project_dir: Path) -> Path | None:
+    """The Python to run the tests with: the first venv in VENV_NAMES that has pytest,
+    else the Python running this hook if it has pytest, else None.
+
+    The fallback is for running Poly with a main Python install and no venv. A venv
+    without pytest is skipped rather than used, because running it would only fail
+    with "No module named pytest" on every edit.
+    """
+    for venv_name in VENV_NAMES:
+        venv = project_dir / venv_name
+        for python in VENV_PYTHONS:
+            if (venv / python).exists() and venv_has_pytest(venv):
+                return venv / python
+    if importlib.util.find_spec("pytest") is not None:
+        return Path(sys.executable)
     return None
 
 
 def run_tests(python: Path) -> tuple[bool, str]:
     """Run the suite, stopping at the first failure. Returns (passed, output)."""
+    # Ask pytest for UTF-8 and decode it as UTF-8: on Windows, piped output would
+    # otherwise use the old code page and choke on characters like the "±" in
+    # pytest.approx failures.
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     result = subprocess.run(
         [str(python), "-m", "pytest", "-q", "-x"],
         cwd=PROJECT_DIR, capture_output=True, text=True,
+        encoding="utf-8", errors="replace", env=env,
     )
     return result.returncode == 0, result.stdout + result.stderr
 
 
 def main() -> int:
-    event = json.load(sys.stdin)
+    # Claude Code talks to hooks in UTF-8. Python on Windows would use the old code
+    # page for pipes, so set both ends explicitly.
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    event = json.loads(sys.stdin.buffer.read().decode("utf-8"))
     rel = edited_path(event)
-    if rel is None or rel.parts[0] not in WATCHED_DIRS:
+    if rel is None or not rel.parts or rel.parts[0] not in WATCHED_DIRS:
         return 0  # docs, README, config files etc.: nothing to check
 
     problems = import_rule_violations()
@@ -116,10 +149,12 @@ def main() -> int:
         print("Import rule broken:\n" + "\n".join(problems), file=sys.stderr)
         return 2
 
-    python = venv_python()
+    python = find_test_python(PROJECT_DIR)
     if python is None:
-        print("check_edit hook: no .venv found, so tests were not run "
-              "(in the cloud the SessionStart hook creates it)", file=sys.stderr)
+        print("check_edit hook: tests were not run - no Python with pytest found "
+              f"(looked in {' and '.join(VENV_NAMES)}, then {sys.executable}). "
+              "Install pytest, e.g. with: pip install -r requirements.txt",
+              file=sys.stderr)
         return 1
 
     passed, output = run_tests(python)

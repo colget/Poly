@@ -107,7 +107,10 @@ why the phases below are written as they are.)
 - Two more hooks in `.claude/settings.json` guard edits: after any edit in `poly/` or
   `tests/`, `check_edit.py` checks the import rules and runs `pytest -q -x` (a failure
   comes back to you to fix); before any edit, `protect_model.py` blocks writes to
-  `hand_landmarker.task`.
+  `hand_landmarker.task`. All hooks run as `python <script>` in exec form (no shell),
+  so they work on Windows and Linux; `session_start.py` only runs the bash script in
+  the cloud. Tests run with the first of `.venv`, `venv` that has pytest, else the
+  Python running the hook.
 - Keep all logic (geometry, mapping, smoothing, gesture classification, dwell timers,
   state machine, profiles) in **pure functions/classes that take plain numbers,
   landmark lists and timestamps**, and test those with pytest. Camera, window and

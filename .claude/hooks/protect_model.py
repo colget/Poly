@@ -11,7 +11,7 @@ Exit codes:
       reason, so it knows why and doesn't keep retrying.
 
 Only covers Claude's file-editing tools (see the matcher in .claude/settings.json),
-not shell commands.
+not shell commands. Works on Windows and Linux; stdlib only.
 """
 
 import json
@@ -29,7 +29,10 @@ def same_file(a: Path, b: Path) -> bool:
 
 
 def main() -> int:
-    tool_input = json.load(sys.stdin).get("tool_input", {})
+    # Claude Code talks to hooks in UTF-8; Python on Windows would use the old code
+    # page for pipes (and misread non-ASCII folder names), so set both ends explicitly.
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    tool_input = json.loads(sys.stdin.buffer.read().decode("utf-8")).get("tool_input", {})
     target = tool_input.get("file_path") or tool_input.get("notebook_path")
     if target and same_file(Path(target), PROTECTED):
         print("Blocked: hand_landmarker.task is the MediaPipe model and must not be "
