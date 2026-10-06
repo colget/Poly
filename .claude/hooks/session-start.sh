@@ -8,8 +8,8 @@
 #   - it never fails the session: any problem is reported as a clear message and
 #     the hook still exits 0, so the session starts and Claude can see what broke.
 
-# The Python version for the venv. README says MediaPipe is tested on 3.11/3.12.
-PYTHON_VERSION="3.12"
+# The Python version for the venv. Matches the owner's Windows machine (see README).
+PYTHON_VERSION="3.14"
 
 VENV_DIR=".venv"
 REQUIREMENTS="requirements.txt"

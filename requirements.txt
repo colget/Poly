@@ -1,4 +1,4 @@
-# Tested with Python 3.11 and 3.12 (see README for why not newer).
+# Developed and tested with Python 3.14 (Windows locally, Linux in the cloud).
 mediapipe==1.0.1
 # mediapipe already depends on opencv-contrib-python. Installing opencv-python as
 # well would put two copies of the cv2 module in the same folder, which breaks in
