@@ -19,8 +19,10 @@ surgeon who must stay sterile. They cannot touch a keyboard or mouse.
 - Destructive actions (reset/redraw) need a longer hold than normal actions, so they
   can't happen by accident while working.
 
-Stack: Python, OpenCV, MediaPipe Tasks `HandLandmarker` (model file
-`hand_landmarker.task`, already in the repo root).
+Stack: Python 3.14, OpenCV, MediaPipe Tasks `HandLandmarker` (model file
+`hand_landmarker.task`, already in the repo root). The project is developed and tested
+on **Python 3.14**: on Windows locally (mediapipe 1.0.1, opencv 5.0.0, numpy 2.4.6) and
+on Linux in the cloud.
 
 ## Current state
 Phases 1–6 are done and tested by the owner on Windows: touchless drawing (dwell, quick
@@ -97,7 +99,11 @@ why the phases below are written as they are.)
 ## Environment constraints — read first
 - You (Claude Code) run in a cloud sandbox: **no webcam, no display, no real mouse.**
   You cannot run the live app. Do not try to test it by launching it.
-- The real target machine is **Windows** with a webcam, run by the owner (Geraint).
+- The real target machine is **Windows** with a webcam, run by the owner (Geraint),
+  on Python 3.14.
+- Cloud sessions get a Python 3.14 `.venv` from the SessionStart hook
+  (`.claude/hooks/session-start.sh`, `PYTHON_VERSION`); run tests with
+  `.venv/bin/python -m pytest`. Keep the hook's version in step with the owner's machine.
 - Keep all logic (geometry, mapping, smoothing, gesture classification, dwell timers,
   state machine, profiles) in **pure functions/classes that take plain numbers,
   landmark lists and timestamps**, and test those with pytest. Camera, window and
@@ -193,7 +199,7 @@ summarise what changed and list the manual test steps.
   limitations (lighting, gloves, camera placement).
 
 ## Conventions
-- Python 3, type hints, small functions, docstrings on public functions.
+- Python 3.14, type hints, small functions, docstrings on public functions.
 - Only `tracker.py` imports mediapipe; only `cursor.py` moves the mouse.
 - Don't modify or re-download `hand_landmarker.task`.
 - Keep `python poly.py` runnable at every phase.

@@ -40,8 +40,8 @@ low-effort way to control a screen from a distance.
 - **Windows 10 or 11.** The code is plain Python and may work elsewhere, but only Windows is
   tested.
 - **A webcam.** Built-in is fine; an external USB webcam that can do 720p at 60 fps is better.
-- **Python 3.11 or 3.12**, from [python.org](https://www.python.org/downloads/). Newer Python
-  versions are not supported yet by MediaPipe, the hand-tracking library.
+- **Python 3.14**, from [python.org](https://www.python.org/downloads/). This is the version
+  Poly is developed and tested on; other versions may work but aren't tested.
   When installing, tick **"Add python.exe to PATH"**.
 - A few hundred MB of disk space for the libraries.
 
@@ -55,7 +55,7 @@ git clone https://github.com/colget/Poly.git
 cd Poly
 
 # 2. Make a private Python environment for Poly (keeps its libraries separate)
-py -3.12 -m venv venv
+py -3.14 -m venv venv
 
 # 3. Switch to it (your prompt then starts with "(venv)")
 venv\Scripts\activate
@@ -380,8 +380,8 @@ size such as 1536x864; that's normal and still reaches the whole screen.
 **Lots of `W0000 ...` / `INFO: Created TensorFlow Lite ...` lines in the console.** These are
 MediaPipe's normal start-up messages and can be ignored.
 
-**`pip install` fails.** Check `python --version` says 3.11 or 3.12. Newer versions aren't
-supported by MediaPipe yet.
+**`pip install` fails.** Check `python --version` says 3.14, the version Poly is tested on.
+If you have several Pythons installed, make the venv with `py -3.14 -m venv venv`.
 
 ## Known limitations
 
@@ -398,8 +398,8 @@ supported by MediaPipe yet.
 - **Quitting uses the keyboard or mouse** (Esc/q or closing the window).
 - **Cheap webcams are laggy at their default settings**; see
   [Camera options](#camera-options).
-- **Python 3.11 or 3.12 only**, because of MediaPipe.
-- **Tested on Windows only.**
+- **Tested on Windows with Python 3.14 only.** The automated tests also run on Linux (in
+  Claude Code cloud sessions), but the app itself needs a webcam and is only tried on Windows.
 
 ---
 
@@ -425,7 +425,9 @@ poly/
 tests/             pytest suite, driven by synthetic hand landmarks and simulated time
 ```
 
-**Tests.** Run `pytest`. The gesture and state-machine tests build fake 21-point hands
+**Tests.** Run `pytest` (developed and tested on Python 3.14: on Windows locally, and on
+Linux in Claude Code cloud sessions, where `.claude/hooks/session-start.sh` sets up a 3.14
+venv automatically). The gesture and state-machine tests build fake 21-point hands
 (`tests/synthetic_hands.py`) and feed them frame by frame with simulated timestamps, so
 "hold a fist for 2 seconds" runs instantly and needs no camera.
 
