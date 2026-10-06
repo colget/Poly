@@ -104,6 +104,10 @@ why the phases below are written as they are.)
 - Cloud sessions get a Python 3.14 `.venv` from the SessionStart hook
   (`.claude/hooks/session-start.sh`, `PYTHON_VERSION`); run tests with
   `.venv/bin/python -m pytest`. Keep the hook's version in step with the owner's machine.
+- Two more hooks in `.claude/settings.json` guard edits: after any edit in `poly/` or
+  `tests/`, `check_edit.py` checks the import rules and runs `pytest -q -x` (a failure
+  comes back to you to fix); before any edit, `protect_model.py` blocks writes to
+  `hand_landmarker.task`.
 - Keep all logic (geometry, mapping, smoothing, gesture classification, dwell timers,
   state machine, profiles) in **pure functions/classes that take plain numbers,
   landmark lists and timestamps**, and test those with pytest. Camera, window and
