@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Shell scripts (e.g. the Claude Code SessionStart hook) must keep LF endings,
+# even on a Windows checkout, or bash fails with "$'\r': command not found".
+*.sh text eol=lf
